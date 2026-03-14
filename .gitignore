@@ -1,0 +1,28 @@
+# Build directories
+build/
+build-*/
+build-ninja-msvc/
+build-ninja-msvc-old/
+
+# CMake / Ninja artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+compile_commands.json
+
+# Windows binaries and debug symbols
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.obj
+*.manifest
+
+# Runtime and logs
+*.log
+Log/
+
