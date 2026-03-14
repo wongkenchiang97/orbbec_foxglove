@@ -422,7 +422,11 @@ void OrbbecProducer::start() {
 
     video_pipeline_ = std::make_unique<ob::Pipeline>();
     auto video_config = std::make_shared<ob::Config>();
-    video_config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ANY_SITUATION);
+    if (options_.sync_color_depth_only) {
+      video_config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
+    } else {
+      video_config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ANY_SITUATION);
+    }
 
     color_enabled_ = false;
     depth_enabled_ = false;
@@ -477,9 +481,20 @@ void OrbbecProducer::start() {
       throw std::runtime_error("No color/depth video stream available to start");
     }
 
+    if (options_.sync_color_depth_only && (!color_enabled_ || !depth_enabled_)) {
+      throw std::runtime_error(
+          "sync_color_depth_only requires both color and depth streams to be enabled");
+    }
+
     video_pipeline_->start(video_config, [this](std::shared_ptr<ob::FrameSet> frame_set) {
       onVideoFrameset(frame_set);
     });
+
+    if (options_.sync_color_depth_only) {
+      video_pipeline_->enableFrameSync();
+      std::cout << "Enabled SDK frame sync with strict color+depth frameset output.\n";
+    }
+
     video_started_ = true;
 
     imu_pipeline_ = std::make_unique<ob::Pipeline>();
@@ -573,6 +588,51 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
   }
 
   try {
+    if (options_.sync_color_depth_only && color_enabled_ && depth_enabled_) {
+      auto color_frame = extractColorVideoFrame(frame_set);
+      auto depth_frame = extractDepthVideoFrame(frame_set);
+      if (!color_frame || !depth_frame) {
+        return;
+      }
+
+      color_frames_received_.fetch_add(1, std::memory_order_relaxed);
+      depth_frames_received_.fetch_add(1, std::memory_order_relaxed);
+
+      auto bgr_opt = decodeColorToBgr(color_frame);
+      auto depth_opt = decodeDepthToMono16(depth_frame);
+      if (!bgr_opt.has_value() || !depth_opt.has_value()) {
+        return;
+      }
+
+      color_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
+      depth_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
+
+      const ColorFrameEvent color_event{bestTimestampUs(color_frame), bgr_opt.value()};
+      const DepthFrameEvent depth_event{bestTimestampUs(depth_frame), depth_opt.value()};
+
+      IFrameConsumer* consumer = nullptr;
+      ColorCallback color_callback;
+      DepthCallback depth_callback;
+      {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        consumer = frame_consumer_;
+        color_callback = color_cb_;
+        depth_callback = depth_cb_;
+      }
+
+      if (consumer) {
+        consumer->onColorFrame(color_event);
+        consumer->onDepthFrame(depth_event);
+      }
+      if (color_callback) {
+        color_callback(color_event);
+      }
+      if (depth_callback) {
+        depth_callback(depth_event);
+      }
+      return;
+    }
+
     if (color_enabled_) {
       auto color_frame = extractColorVideoFrame(frame_set);
       if (color_frame) {

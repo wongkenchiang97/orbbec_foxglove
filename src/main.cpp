@@ -28,6 +28,7 @@ struct BridgeOptions {
   uint32_t color_height = 480;
   uint32_t color_fps = 30;
   bool depth_enabled = true;
+  bool sync_color_depth_only = false;
   uint32_t depth_width = 640;
   uint32_t depth_height = 480;
   uint32_t depth_fps = 30;
@@ -56,6 +57,7 @@ void printUsage() {
       << "  --color-height <num>       Color height (default: 480)\n"
       << "  --color-fps <num>          Color fps (default: 30)\n"
       << "  --depth-enabled <0|1>      Enable depth stream (default: 1)\n"
+      << "  --sync-color-depth-only <0|1>  Require synchronized color+depth framesets (default: 0)\n"
       << "  --depth-width <num>        Depth width (default: 640)\n"
       << "  --depth-height <num>       Depth height (default: 480)\n"
       << "  --depth-fps <num>          Depth fps (default: 30)\n"
@@ -224,6 +226,13 @@ bool applyOptionKeyValue(
   if (key == "depth_enabled") {
     if (!parseBool(value, options.depth_enabled)) {
       err = "Invalid depth_enabled value: " + value;
+      return false;
+    }
+    return true;
+  }
+  if (key == "sync_color_depth_only") {
+    if (!parseBool(value, options.sync_color_depth_only)) {
+      err = "Invalid sync_color_depth_only value: " + value;
       return false;
     }
     return true;
@@ -441,6 +450,7 @@ int main(int argc, char** argv) {
     producer_options.color_height = options.color_height;
     producer_options.color_fps = options.color_fps;
     producer_options.depth_enabled = options.depth_enabled;
+    producer_options.sync_color_depth_only = options.sync_color_depth_only;
     producer_options.depth_width = options.depth_width;
     producer_options.depth_height = options.depth_height;
     producer_options.depth_fps = options.depth_fps;

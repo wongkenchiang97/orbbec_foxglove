@@ -6,7 +6,7 @@ Windows-native C++ bridge for Orbbec cameras and Foxglove.
 - Publishes to Foxglove over WebSocket
 - Uses `config/camera_config.ini` for runtime settings
 
-Current baseline release: `v0.0.1` (2026-03-15).  
+Current baseline release: `v0.0.2` (2026-03-15).  
 See [CHANGELOG.md](CHANGELOG.md) for updates.
 
 ## Data Flow
@@ -65,6 +65,12 @@ Default runtime settings are loaded from:
 
 - `config/camera_config.ini`
 
+For RGB-D VO, enable synchronized-only framesets in config:
+
+- `sync_color_depth_only=1` to require each video `FrameSet` to include both color and depth.
+- This enables Orbbec SDK frame sync and strict frame aggregation.
+- `depth_enabled` must stay `1` when this is enabled.
+
 Run executable:
 
 ```powershell
@@ -74,6 +80,7 @@ Run executable:
 Optional flags:
 - `--host <ip>`
 - `--port <num>`
+- `--sync-color-depth-only <0|1>`
 - `--extensions-dir <path>`
 
 ## Foxglove Connect

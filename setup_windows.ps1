@@ -7,6 +7,7 @@ param(
 
   [string]$VcpkgToolchain = "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
   [string]$BuildType = "Release",
+  [string]$ConfigPath = "",
   [switch]$BuildOnly
 )
 
@@ -14,6 +15,10 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build"
+
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+  $ConfigPath = Join-Path $ScriptDir "config/camera_config.ini"
+}
 
 Write-Host "Configuring project..."
 cmake -S $ScriptDir -B $BuildDir `
@@ -38,5 +43,10 @@ if (!(Test-Path $ExePath)) {
   throw "Executable not found after build: $ExePath"
 }
 
+if (!(Test-Path $ConfigPath)) {
+  throw "Config file not found: $ConfigPath"
+}
+
 Write-Host "Starting bridge..."
-& $ExePath --host 0.0.0.0 --port 8765 --color-width 640 --color-height 480 --color-fps 30
+Write-Host "Using config: $ConfigPath"
+& $ExePath --config $ConfigPath

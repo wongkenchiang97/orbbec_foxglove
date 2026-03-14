@@ -49,6 +49,7 @@ class OrbbecProducer final {
     uint32_t depth_width = 640;
     uint32_t depth_height = 480;
     uint32_t depth_fps = 30;
+    bool sync_color_depth_only = false;
     double imu_accel_hz = 0.0;
     double imu_gyro_hz = 0.0;
     std::string extensions_dir;
