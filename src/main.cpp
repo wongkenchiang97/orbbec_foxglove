@@ -15,6 +15,7 @@
 
 #include <libobsensor/ObSensor.hpp>
 
+#include "frame_dispatcher.hpp"
 #include "foxglove_publisher.hpp"
 #include "orbbec_producer.hpp"
 
@@ -447,8 +448,11 @@ int main(int argc, char** argv) {
     producer_options.imu_gyro_hz = options.imu_gyro_hz;
     producer_options.extensions_dir = options.extensions_dir;
 
+    bridge::FrameDispatcher frame_dispatcher;
+    frame_dispatcher.addConsumer(&publisher);
+
     bridge::OrbbecProducer producer(std::move(producer_options));
-    producer.setFrameConsumer(&publisher);
+    producer.setFrameConsumer(&frame_dispatcher);
 
     producer.start();
 
