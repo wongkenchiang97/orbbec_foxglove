@@ -58,6 +58,24 @@ class FrameDispatcher final : public IFrameConsumer {
     }
   }
 
+  void onExtrinsics(const ExtrinsicsEvent& event) override {
+    const auto consumers = snapshotConsumers();
+    for (auto* consumer : consumers) {
+      if (consumer) {
+        consumer->onExtrinsics(event);
+      }
+    }
+  }
+
+  void onCameraCalibration(const CameraCalibrationEvent& event) override {
+    const auto consumers = snapshotConsumers();
+    for (auto* consumer : consumers) {
+      if (consumer) {
+        consumer->onCameraCalibration(event);
+      }
+    }
+  }
+
  private:
   std::vector<IFrameConsumer*> snapshotConsumers() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -69,4 +87,3 @@ class FrameDispatcher final : public IFrameConsumer {
 };
 
 }  // namespace bridge
-

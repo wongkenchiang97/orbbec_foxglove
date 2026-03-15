@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -45,6 +44,13 @@ std::atomic<bool> g_running{true};
 
 void signalHandler(int) {
   g_running.store(false);
+}
+
+uint64_t nowEpochUs() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
 }
 
 void printUsage() {
@@ -456,6 +462,8 @@ int main(int argc, char** argv) {
     producer_options.depth_fps = options.depth_fps;
     producer_options.imu_accel_hz = options.imu_accel_hz;
     producer_options.imu_gyro_hz = options.imu_gyro_hz;
+    producer_options.color_frame_id = options.frame_id;
+    producer_options.depth_frame_id = options.depth_frame_id;
     producer_options.extensions_dir = options.extensions_dir;
 
     bridge::FrameDispatcher frame_dispatcher;
@@ -473,35 +481,12 @@ int main(int argc, char** argv) {
       const auto now = std::chrono::steady_clock::now();
       if (now - last_log >= std::chrono::seconds(1)) {
         const double elapsed_s = std::chrono::duration<double>(now - last_log).count();
-        auto hz = [elapsed_s](uint64_t count) {
-          return elapsed_s > 0.0 ? static_cast<double>(count) / elapsed_s : 0.0;
-        };
 
         const auto producer_stats = producer.consumeStats();
         const auto publisher_stats = publisher.consumeStats();
 
-        std::cout << std::fixed << std::setprecision(1)
-                  << "Rates[" << elapsed_s << "s]"
-                  << " color_rx=" << hz(producer_stats.color_frames_received) << "Hz"
-                  << " color_decode=" << hz(producer_stats.color_frames_decoded) << "Hz"
-                  << " color_pub=" << hz(publisher_stats.color_frames_published) << "Hz"
-                  << " depth_rx=" << hz(producer_stats.depth_frames_received) << "Hz"
-                  << " depth_decode=" << hz(producer_stats.depth_frames_decoded) << "Hz"
-                  << " depth_pub=" << hz(publisher_stats.depth_frames_published) << "Hz"
-                  << " depth_preview_pub=" << hz(publisher_stats.depth_preview_frames_published) << "Hz"
-                  << " imu_fs=" << hz(producer_stats.imu_framesets_received) << "Hz"
-                  << " accel=" << hz(producer_stats.imu_accel_samples) << "Hz"
-                  << " gyro=" << hz(producer_stats.imu_gyro_samples) << "Hz"
-                  << " imu_pub=" << hz(publisher_stats.imu_packets_published) << "Hz"
-                  << " sinks[c=" << (publisher_stats.color_sink ? 1 : 0)
-                  << ",d=" << (publisher_stats.depth_sink ? 1 : 0)
-                  << ",dp=" << (publisher_stats.depth_preview_sink ? 1 : 0)
-                  << ",i=" << (publisher_stats.imu_sink ? 1 : 0) << "]"
-                  << " log_err[c=" << publisher_stats.color_log_errors
-                  << ",d=" << publisher_stats.depth_log_errors
-                  << ",dp=" << publisher_stats.depth_preview_log_errors
-                  << ",i=" << publisher_stats.imu_log_errors << "]"
-                  << "\n";
+        publisher.publishDiagnostics(
+            nowEpochUs(), elapsed_s, producer_stats, publisher_stats);
 
         last_log = now;
       }

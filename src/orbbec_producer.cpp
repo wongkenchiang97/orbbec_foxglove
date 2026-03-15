@@ -1,6 +1,7 @@
 #include "orbbec_producer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -50,6 +51,13 @@ std::optional<ImuSampleRateChoice> chooseImuSampleRate(double requested_hz) {
   return *best;
 }
 
+uint64_t nowEpochUs() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
+}
+
 uint64_t bestTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
   if (!frame) {
     return 0;
@@ -61,6 +69,13 @@ uint64_t bestTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
   const auto system = frame->getSystemTimeStampUs();
   if (system != 0) {
     return system;
+  }
+  return frame->getTimeStampUs();
+}
+
+uint64_t deviceTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
+  if (!frame) {
+    return 0;
   }
   return frame->getTimeStampUs();
 }
@@ -404,6 +419,16 @@ void OrbbecProducer::setImuCallback(ImuCallback cb) {
   imu_cb_ = std::move(cb);
 }
 
+void OrbbecProducer::setExtrinsicsCallback(ExtrinsicsCallback cb) {
+  std::lock_guard<std::mutex> lock(callback_mutex_);
+  extrinsics_cb_ = std::move(cb);
+}
+
+void OrbbecProducer::setCameraCalibrationCallback(CameraCalibrationCallback cb) {
+  std::lock_guard<std::mutex> lock(callback_mutex_);
+  camera_calibration_cb_ = std::move(cb);
+}
+
 void OrbbecProducer::setFrameConsumer(IFrameConsumer* consumer) {
   std::lock_guard<std::mutex> lock(callback_mutex_);
   frame_consumer_ = consumer;
@@ -430,6 +455,8 @@ void OrbbecProducer::start() {
 
     color_enabled_ = false;
     depth_enabled_ = false;
+    std::shared_ptr<ob::VideoStreamProfile> selected_color_profile;
+    std::shared_ptr<ob::VideoStreamProfile> selected_depth_profile;
 
     try {
       auto profile_list = video_pipeline_->getStreamProfileList(OB_SENSOR_COLOR);
@@ -440,12 +467,19 @@ void OrbbecProducer::start() {
                 << " @ " << color_profile->getFps() << "fps"
                 << " format=" << static_cast<int>(color_profile->getFormat()) << "\n";
       video_config->enableStream(color_profile);
+      selected_color_profile = color_profile;
       color_enabled_ = true;
     } catch (const std::exception& e) {
       std::cerr << "Requested color profile unavailable (" << e.what()
                 << "), fallback to sensor default profile.\n";
       try {
         video_config->enableStream(OB_SENSOR_COLOR);
+        try {
+          auto profile_list = video_pipeline_->getStreamProfileList(OB_SENSOR_COLOR);
+          selected_color_profile = selectColorProfile(
+              profile_list, options_.color_width, options_.color_height, options_.color_fps);
+        } catch (...) {
+        }
         color_enabled_ = true;
       } catch (const ob::Error& color_err) {
         std::cerr << "Color stream unavailable: " << color_err.getMessage() << "\n";
@@ -462,12 +496,19 @@ void OrbbecProducer::start() {
                   << " @ " << depth_profile->getFps() << "fps"
                   << " format=" << static_cast<int>(depth_profile->getFormat()) << "\n";
         video_config->enableStream(depth_profile);
+        selected_depth_profile = depth_profile;
         depth_enabled_ = true;
       } catch (const std::exception& e) {
         std::cerr << "Requested depth profile unavailable (" << e.what()
                   << "), fallback to sensor default profile.\n";
         try {
           video_config->enableStream(OB_SENSOR_DEPTH);
+          try {
+            auto depth_profile_list = video_pipeline_->getStreamProfileList(OB_SENSOR_DEPTH);
+            selected_depth_profile = selectDepthProfile(
+                depth_profile_list, options_.depth_width, options_.depth_height, options_.depth_fps);
+          } catch (...) {
+          }
           depth_enabled_ = true;
         } catch (const ob::Error& depth_err) {
           std::cerr << "Depth stream unavailable: " << depth_err.getMessage() << "\n";
@@ -501,14 +542,23 @@ void OrbbecProducer::start() {
     auto imu_config = std::make_shared<ob::Config>();
     imu_config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ANY_SITUATION);
     imu_enabled_ = false;
+    last_imu_device_timestamp_us_ = 0;
+    imu_dt_reset_threshold_us_ = 500000;
+    has_accel_intrinsic_ = false;
+    accel_intrinsic_ = OBAccelIntrinsic{};
+    has_gyro_intrinsic_ = false;
+    gyro_intrinsic_ = OBGyroIntrinsic{};
 
     OBAccelSampleRate accel_rate = OB_ACCEL_SAMPLE_RATE_ANY;
     OBGyroSampleRate gyro_rate = OB_GYRO_SAMPLE_RATE_ANY;
+    double accel_rate_hz = 0.0;
+    double gyro_rate_hz = 0.0;
 
     if (options_.imu_accel_hz > 0.0) {
       auto choice = chooseImuSampleRate(options_.imu_accel_hz);
       if (choice.has_value()) {
         accel_rate = static_cast<OBAccelSampleRate>(choice->rate);
+        accel_rate_hz = choice->hz;
         std::cout << "Requested accel rate " << options_.imu_accel_hz
                   << "Hz -> using " << choice->hz << "Hz\n";
       } else {
@@ -520,11 +570,19 @@ void OrbbecProducer::start() {
       auto choice = chooseImuSampleRate(options_.imu_gyro_hz);
       if (choice.has_value()) {
         gyro_rate = static_cast<OBGyroSampleRate>(choice->rate);
+        gyro_rate_hz = choice->hz;
         std::cout << "Requested gyro rate " << options_.imu_gyro_hz
                   << "Hz -> using " << choice->hz << "Hz\n";
       } else {
         std::cerr << "Invalid gyro sample rate request, fallback to SDK default.\n";
       }
+    }
+
+    const double max_imu_hz = std::max(accel_rate_hz, gyro_rate_hz);
+    if (max_imu_hz > 0.0) {
+      // Allow jitter but reset dt if there is a large timing discontinuity.
+      const double reset_threshold_sec = std::max(10.0 / max_imu_hz, 0.05);
+      imu_dt_reset_threshold_us_ = static_cast<uint64_t>(reset_threshold_sec * 1e6);
     }
 
     try {
@@ -542,6 +600,78 @@ void OrbbecProducer::start() {
     }
 
     if (imu_enabled_) {
+      try {
+        auto accel_profiles = imu_pipeline_->getStreamProfileList(OB_SENSOR_ACCEL);
+        std::shared_ptr<ob::AccelStreamProfile> accel_profile;
+        if (accel_profiles) {
+          if (accel_rate != OB_ACCEL_SAMPLE_RATE_ANY) {
+            try {
+              accel_profile = accel_profiles->getAccelStreamProfile(
+                  OB_ACCEL_FULL_SCALE_RANGE_ANY, accel_rate);
+            } catch (...) {
+              accel_profile.reset();
+            }
+          }
+
+          if (!accel_profile) {
+            const uint32_t profile_count = accel_profiles->getCount();
+            for (uint32_t i = 0; i < profile_count; ++i) {
+              auto profile = accel_profiles->getProfile(i);
+              if (profile && profile->is<ob::AccelStreamProfile>()) {
+                accel_profile = profile->as<ob::AccelStreamProfile>();
+                break;
+              }
+            }
+          }
+        }
+
+        if (accel_profile) {
+          accel_intrinsic_ = accel_profile->getIntrinsic();
+          has_accel_intrinsic_ = true;
+          std::cout << "Accel intrinsic loaded from stream profile.\n";
+        } else {
+          std::cerr << "Accel intrinsic unavailable (no accel stream profile).\n";
+        }
+      } catch (const std::exception& e) {
+        std::cerr << "Accel intrinsic unavailable: " << e.what() << "\n";
+      }
+
+      try {
+        auto gyro_profiles = imu_pipeline_->getStreamProfileList(OB_SENSOR_GYRO);
+        std::shared_ptr<ob::GyroStreamProfile> gyro_profile;
+        if (gyro_profiles) {
+          if (gyro_rate != OB_GYRO_SAMPLE_RATE_ANY) {
+            try {
+              gyro_profile = gyro_profiles->getGyroStreamProfile(
+                  OB_GYRO_FULL_SCALE_RANGE_ANY, gyro_rate);
+            } catch (...) {
+              gyro_profile.reset();
+            }
+          }
+
+          if (!gyro_profile) {
+            const uint32_t profile_count = gyro_profiles->getCount();
+            for (uint32_t i = 0; i < profile_count; ++i) {
+              auto profile = gyro_profiles->getProfile(i);
+              if (profile && profile->is<ob::GyroStreamProfile>()) {
+                gyro_profile = profile->as<ob::GyroStreamProfile>();
+                break;
+              }
+            }
+          }
+        }
+
+        if (gyro_profile) {
+          gyro_intrinsic_ = gyro_profile->getIntrinsic();
+          has_gyro_intrinsic_ = true;
+          std::cout << "Gyro intrinsic loaded from stream profile.\n";
+        } else {
+          std::cerr << "Gyro intrinsic unavailable (no gyro stream profile).\n";
+        }
+      } catch (const std::exception& e) {
+        std::cerr << "Gyro intrinsic unavailable: " << e.what() << "\n";
+      }
+
       imu_pipeline_->start(imu_config, [this](std::shared_ptr<ob::FrameSet> frame_set) {
         onImuFrameset(frame_set);
       });
@@ -549,6 +679,75 @@ void OrbbecProducer::start() {
       std::cout << "IMU stream enabled\n";
     } else {
       std::cout << "IMU stream disabled (not available)\n";
+    }
+
+    CameraCalibrationEvent calibration_event;
+    calibration_event.timestamp_us = nowEpochUs();
+    if (selected_color_profile) {
+      try {
+        calibration_event.color_intrinsic = selected_color_profile->getIntrinsic();
+        calibration_event.color_distortion = selected_color_profile->getDistortion();
+        calibration_event.has_color = true;
+      } catch (const std::exception& e) {
+        std::cerr << "Color camera intrinsic/distortion unavailable: " << e.what() << "\n";
+      }
+    }
+    if (selected_depth_profile) {
+      try {
+        calibration_event.depth_intrinsic = selected_depth_profile->getIntrinsic();
+        calibration_event.depth_distortion = selected_depth_profile->getDistortion();
+        calibration_event.has_depth = true;
+      } catch (const std::exception& e) {
+        std::cerr << "Depth camera intrinsic/distortion unavailable: " << e.what() << "\n";
+      }
+    }
+    if (calibration_event.has_color || calibration_event.has_depth) {
+      IFrameConsumer* consumer = nullptr;
+      CameraCalibrationCallback callback;
+      {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        consumer = frame_consumer_;
+        callback = camera_calibration_cb_;
+      }
+      if (consumer) {
+        consumer->onCameraCalibration(calibration_event);
+      }
+      if (callback) {
+        callback(calibration_event);
+      }
+      std::cout << "Published camera intrinsics for available image streams.\n";
+    }
+
+    if (selected_color_profile && selected_depth_profile &&
+        !options_.color_frame_id.empty() && !options_.depth_frame_id.empty()) {
+      try {
+        ExtrinsicsEvent extrinsics_event;
+        extrinsics_event.timestamp_us = nowEpochUs();
+        ExtrinsicTransformEvent transform;
+        transform.parent_frame_id = options_.color_frame_id;
+        transform.child_frame_id = options_.depth_frame_id;
+        transform.extrinsic = selected_depth_profile->getExtrinsicTo(selected_color_profile);
+        extrinsics_event.transforms.push_back(transform);
+
+        IFrameConsumer* consumer = nullptr;
+        ExtrinsicsCallback callback;
+        {
+          std::lock_guard<std::mutex> lock(callback_mutex_);
+          consumer = frame_consumer_;
+          callback = extrinsics_cb_;
+        }
+
+        if (consumer) {
+          consumer->onExtrinsics(extrinsics_event);
+        }
+        if (callback) {
+          callback(extrinsics_event);
+        }
+
+        std::cout << "Published depth-to-color extrinsics for frame tree.\n";
+      } catch (const std::exception& e) {
+        std::cerr << "Depth-color extrinsics unavailable: " << e.what() << "\n";
+      }
     }
   } catch (...) {
     stop();
@@ -578,6 +777,11 @@ void OrbbecProducer::stop() {
   imu_enabled_ = false;
   color_enabled_ = false;
   depth_enabled_ = false;
+  last_imu_device_timestamp_us_ = 0;
+  has_accel_intrinsic_ = false;
+  accel_intrinsic_ = OBAccelIntrinsic{};
+  has_gyro_intrinsic_ = false;
+  gyro_intrinsic_ = OBGyroIntrinsic{};
   imu_pipeline_.reset();
   video_pipeline_.reset();
 }
@@ -698,6 +902,7 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
     imu_framesets_received_.fetch_add(1, std::memory_order_relaxed);
 
     ImuSampleEvent event;
+    uint64_t device_timestamp_us = 0;
 
     auto accel_raw = frame_set->getFrame(OB_FRAME_ACCEL);
     if (accel_raw) {
@@ -705,6 +910,7 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
       if (accel_frame) {
         event.accel = accel_frame->getValue();
         event.timestamp_us = std::max(event.timestamp_us, bestTimestampUs(accel_frame));
+        device_timestamp_us = std::max(device_timestamp_us, deviceTimestampUs(accel_frame));
         event.has_accel = true;
         imu_accel_samples_.fetch_add(1, std::memory_order_relaxed);
       }
@@ -716,12 +922,41 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
       if (gyro_frame) {
         event.gyro = gyro_frame->getValue();
         event.timestamp_us = std::max(event.timestamp_us, bestTimestampUs(gyro_frame));
+        device_timestamp_us = std::max(device_timestamp_us, deviceTimestampUs(gyro_frame));
         event.has_gyro = true;
         imu_gyro_samples_.fetch_add(1, std::memory_order_relaxed);
       }
     }
 
     if (event.has_accel || event.has_gyro) {
+      event.device_timestamp_us = device_timestamp_us;
+      if (device_timestamp_us != 0) {
+        if (last_imu_device_timestamp_us_ != 0) {
+          if (device_timestamp_us > last_imu_device_timestamp_us_) {
+            const uint64_t delta_us = device_timestamp_us - last_imu_device_timestamp_us_;
+            if (delta_us <= imu_dt_reset_threshold_us_) {
+              event.dt_sec = static_cast<double>(delta_us) * 1e-6;
+              event.dt_valid = true;
+            } else {
+              std::cerr << "IMU timestamp jump too large (" << delta_us
+                        << "us), reset dt.\n";
+            }
+          } else {
+            std::cerr << "IMU timestamp moved backward, reset dt.\n";
+          }
+        }
+        last_imu_device_timestamp_us_ = device_timestamp_us;
+      }
+
+      event.has_accel_intrinsic = has_accel_intrinsic_;
+      if (has_accel_intrinsic_) {
+        event.accel_intrinsic = accel_intrinsic_;
+      }
+      event.has_gyro_intrinsic = has_gyro_intrinsic_;
+      if (has_gyro_intrinsic_) {
+        event.gyro_intrinsic = gyro_intrinsic_;
+      }
+
       IFrameConsumer* consumer = nullptr;
       ImuCallback callback;
       {

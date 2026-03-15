@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.0.3 - 2026-03-15
+
+### Added
+
+- Published camera calibration topics using `foxglove.CameraCalibration`:
+  - `/camera/color/camera_info`
+  - `/camera/depth/camera_info`
+- Published depth-to-color extrinsics to `/tf` using `foxglove.FrameTransform`.
+- Added producer events for camera calibration and extrinsics so calibration/TF data can be distributed through `IFrameConsumer` and `FrameDispatcher`.
+- Added IMU metadata fields:
+  - device timestamp (`device_timestamp_us`)
+  - per-sample delta time (`dt_sec`, `dt_valid`)
+  - accelerometer and gyroscope intrinsic payloads
+- Added IMU intrinsic topics:
+  - `/camera/imu/accel_intrinsic`
+  - `/camera/imu/gyro_intrinsic`
+- Added bridge diagnostics topic:
+  - `/bridge/diagnostics` (JSON, published every second)
+
+### Changed
+
+- `OrbbecProducer` now reads color/depth camera intrinsics and distortion from selected stream profiles and emits camera calibration events at startup.
+- `OrbbecProducer` now reads depth-to-color extrinsics from stream profiles and emits TF-ready transform events.
+- `/camera/*/camera_info` timestamps are now aligned with image timestamps during runtime callbacks.
+- `/tf` is now republished using depth-frame timestamps (instead of low-rate color-triggered publish), improving temporal alignment for depth-map visualization.
+- Replaced periodic console FPS flush output with structured diagnostics publishing to Foxglove.
+
+### Fixed
+
+- Fixed Foxglove depth-map/point-cloud instability where cloud rendering could appear only once due to sparse transform and camera-info timing updates.
+
 ## v0.0.2 - 2026-03-15
 
 ### Added

@@ -22,9 +22,13 @@ Planned extension:
 ## Topics
 
 - `/camera/color/image_raw` (`foxglove.RawImage`)
+- `/camera/color/camera_info` (`foxglove.CameraCalibration`)
 - `/camera/depth/image_raw` (`foxglove.RawImage`, when depth enabled)
+- `/camera/depth/camera_info` (`foxglove.CameraCalibration`, when depth enabled)
 - `/camera/depth/preview` (`foxglove.RawImage`, colorized depth preview)
 - `/camera/imu` (JSON payload)
+- `/bridge/diagnostics` (JSON bridge diagnostics, 1Hz)
+- `/tf` (`foxglove.FrameTransform`, Orbbec extrinsics for frame tree)
 
 ## Prerequisites (Windows)
 
@@ -89,6 +93,7 @@ Optional flags:
 2. Add `WebSocket` connection
 3. URL: `ws://127.0.0.1:8765`
 4. Add panels for image and IMU topics
+5. Add `Transform Tree` and `3D` panels to visualize `/tf` frames
 
 ## Changelog
 
