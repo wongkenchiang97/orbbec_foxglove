@@ -1,12 +1,12 @@
-# orbbec_foxglove (Windows)
+# orbbec_foxglove
 
-Windows-native C++ bridge for Orbbec cameras and Foxglove.
+C++ bridge for Orbbec cameras and Foxglove with Windows and Ubuntu build scripts.
 
 - Captures color/depth/IMU from Orbbec SDK
 - Publishes to Foxglove over WebSocket
 - Uses `config/camera_config.ini` for runtime settings
 
-Current baseline release: `v0.0.2` (2026-03-15).  
+Current baseline release: `v0.0.4` (2026-03-15).  
 See [CHANGELOG.md](CHANGELOG.md) for updates.
 
 ## Data Flow
@@ -50,7 +50,7 @@ vcpkg install opencv4
 
 ## Build
 
-Use the included build helper:
+### Windows
 
 ```powershell
 .\build_ninja_msvc.cmd
@@ -62,6 +62,46 @@ By default it configures:
 - `VCPKG_TOOLCHAIN=C:/Users/USER/Documents/amr_ws/vcpkg/scripts/buildsystems/vcpkg.cmake`
 
 If needed, edit `build_ninja_msvc.cmd` for your local paths.
+
+### Ubuntu/Linux
+
+Use the Linux build helper:
+
+```bash
+chmod +x ./build_ninja_linux.sh
+./build_ninja_linux.sh
+```
+
+Default Linux paths:
+- `ORBBEC_SDK_ROOT=/opt/orbbec-sdk`
+- `FOXGLOVE_SDK_ROOT=../foxglove-sdk` (relative to repo root)
+
+Override example:
+
+```bash
+ORBBEC_SDK_ROOT=/opt/OrbbecSDK \
+FOXGLOVE_SDK_ROOT=$HOME/dev/foxglove-sdk \
+./build_ninja_linux.sh
+```
+
+## Reusable Targets
+
+The CMake project now exposes reusable library targets:
+
+- `orbbec::core` (`orbbec_core`): `OrbbecProducer` + shared consumer interfaces
+- `orbbec::foxglove_sink` (`orbbec_foxglove_sink`): `FoxglovePublisher`
+- `orbbec_foxglove_bridge`: executable app target (current bridge)
+
+Build options:
+
+- `-DORBBEC_BUILD_FOXGLOVE_SINK=ON|OFF` (default: `ON`)
+- `-DORBBEC_BUILD_BRIDGE_APP=ON|OFF` (default: `ON`)
+
+For a VO-focused external project that only needs producer/dispatcher interfaces:
+
+- set `ORBBEC_BUILD_FOXGLOVE_SINK=OFF`
+- set `ORBBEC_BUILD_BRIDGE_APP=OFF`
+- link your app against `orbbec::core` via `add_subdirectory(...)` / submodule
 
 ## Run
 

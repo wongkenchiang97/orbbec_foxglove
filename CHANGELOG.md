@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.0.4 - 2026-03-15
+
+### Added
+
+- Added `build_ninja_linux.sh` for Ubuntu/Linux Ninja builds with environment-variable overrides.
+- Added Linux build usage to README (`ORBBEC_SDK_ROOT`, `FOXGLOVE_SDK_ROOT` override examples).
+
+### Changed
+
+- README project scope updated from Windows-only wording to Windows + Ubuntu support.
+
+### Removed
+
+- Removed legacy `setup_windows.ps1` to avoid duplicate/stale build-run paths.
+
 ## v0.0.3 - 2026-03-15
 
 ### Added
@@ -28,6 +43,10 @@ All notable changes to this project are documented in this file.
 - `/camera/*/camera_info` timestamps are now aligned with image timestamps during runtime callbacks.
 - `/tf` is now republished using depth-frame timestamps (instead of low-rate color-triggered publish), improving temporal alignment for depth-map visualization.
 - Replaced periodic console FPS flush output with structured diagnostics publishing to Foxglove.
+- Refactored build system into reusable CMake libraries:
+  - `orbbec::core`
+  - `orbbec::foxglove_sink`
+  - bridge app now links these targets
 
 ### Fixed
 
