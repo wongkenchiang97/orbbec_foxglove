@@ -15,16 +15,19 @@
 namespace bridge {
 
 struct ColorFrameEvent {
+  uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
   cv::Mat bgr;
 };
 
 struct DepthFrameEvent {
+  uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
   cv::Mat depth_mono16;
 };
 
 struct ImuSampleEvent {
+  uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
   uint64_t device_timestamp_us = 0;
   double dt_sec = 0.0;
@@ -46,11 +49,13 @@ struct ExtrinsicTransformEvent {
 };
 
 struct ExtrinsicsEvent {
+  uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
   std::vector<ExtrinsicTransformEvent> transforms;
 };
 
 struct CameraCalibrationEvent {
+  uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
   bool has_color = false;
   OBCameraIntrinsic color_intrinsic{};
@@ -73,6 +78,7 @@ class IFrameConsumer {
 class OrbbecProducer final {
  public:
   struct Options {
+    uint32_t source_id = 0;
     uint32_t color_width = 640;
     uint32_t color_height = 480;
     uint32_t color_fps = 30;

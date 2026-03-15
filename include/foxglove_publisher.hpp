@@ -20,6 +20,7 @@ namespace bridge {
 class FoxglovePublisher final : public IFrameConsumer {
  public:
   struct Options {
+    uint32_t source_id = 0;
     std::string host = "0.0.0.0";
     uint16_t port = 8765;
     std::string color_frame_id = "camera_color_optical_frame";
@@ -80,6 +81,8 @@ class FoxglovePublisher final : public IFrameConsumer {
   [[nodiscard]] Stats consumeStats();
 
  private:
+  [[nodiscard]] bool acceptsSource(uint32_t source_id) const;
+
   Options options_;
 
   foxglove::Context context_;

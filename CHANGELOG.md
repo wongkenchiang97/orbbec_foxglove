@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.0.6 - 2026-03-15
+
+### Added
+
+- Added `orbbec_camera_producer` executable (`src/producer_main.cpp`) for producer-only deployment without Foxglove runtime dependency.
+- Added configurable build toggle `ORBBEC_BUILD_PRODUCER_APP`.
+- Added reusable CMake helper to copy Orbbec runtime assets for executable targets on Windows.
+
+### Changed
+
+- Updated Windows/Linux build scripts to support Foxglove-enabled and Foxglove-independent build modes via environment variables.
+- Updated README with a dedicated Foxglove-independent build guide and runtime config usage notes.
+
+## v0.0.5 - 2026-03-15
+
+### Added
+
+- Added `source_id` to bridge runtime config/CLI (`source_id` in INI and `--source-id` option), defaulting to `0`.
+- Added `source_id` into producer event payloads (`ColorFrameEvent`, `DepthFrameEvent`, `ImuSampleEvent`, `ExtrinsicsEvent`, `CameraCalibrationEvent`).
+- Added `source_id` fields to Foxglove JSON payloads for:
+  - `/camera/imu`
+  - `/camera/imu/accel_intrinsic`
+  - `/camera/imu/gyro_intrinsic`
+  - `/bridge/diagnostics`
+
+### Changed
+
+- `FoxglovePublisher` now binds to one configured source and ignores events from other source IDs.
+- Bridge startup logs now print the bound source ID.
+- README and sample camera config now document single-camera default (`source_id=0`) and multi-camera usage pattern.
+
 ## v0.0.4 - 2026-03-15
 
 ### Added

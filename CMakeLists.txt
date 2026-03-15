@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ORBBEC_BUILD_FOXGLOVE_SINK "Build Foxglove publisher library target" ON)
 option(ORBBEC_BUILD_BRIDGE_APP "Build bridge executable app target" ON)
+option(ORBBEC_BUILD_PRODUCER_APP "Build producer-only executable app target (no Foxglove dependency)" OFF)
 
 if(ORBBEC_BUILD_BRIDGE_APP AND NOT ORBBEC_BUILD_FOXGLOVE_SINK)
   message(FATAL_ERROR "ORBBEC_BUILD_BRIDGE_APP requires ORBBEC_BUILD_FOXGLOVE_SINK=ON")
@@ -55,6 +56,38 @@ function(orbbec_apply_common_cxx_options target_name)
     target_compile_options(${target_name} PRIVATE
       /EHsc
       /utf-8
+    )
+  endif()
+endfunction()
+
+function(orbbec_add_windows_runtime_assets target_name)
+  if(NOT WIN32)
+    return()
+  endif()
+
+  if(ORBBEC_SDK_DLL)
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORBBEC_SDK_DLL}"
+        "$<TARGET_FILE_DIR:${target_name}>/OrbbecSDK.dll"
+    )
+  else()
+    message(WARNING "Could not find OrbbecSDK.dll under ${ORBBEC_SDK_ROOT}; runtime may fail.")
+  endif()
+
+  if(EXISTS "${ORBBEC_SDK_ROOT}/bin/OrbbecSDKConfig.xml")
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORBBEC_SDK_ROOT}/bin/OrbbecSDKConfig.xml"
+        "$<TARGET_FILE_DIR:${target_name}>/OrbbecSDKConfig.xml"
+    )
+  endif()
+
+  if(EXISTS "${ORBBEC_SDK_ROOT}/bin/extensions")
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${ORBBEC_SDK_ROOT}/bin/extensions"
+        "$<TARGET_FILE_DIR:${target_name}>/extensions"
     )
   endif()
 endfunction()
@@ -168,32 +201,22 @@ if(ORBBEC_BUILD_BRIDGE_APP)
   )
 
   orbbec_apply_common_cxx_options(orbbec_foxglove_bridge)
+  orbbec_add_windows_runtime_assets(orbbec_foxglove_bridge)
+endif()
 
-  if(WIN32)
-    if(ORBBEC_SDK_DLL)
-      add_custom_command(TARGET orbbec_foxglove_bridge POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${ORBBEC_SDK_DLL}"
-          "$<TARGET_FILE_DIR:orbbec_foxglove_bridge>/OrbbecSDK.dll"
-      )
-    else()
-      message(WARNING "Could not find OrbbecSDK.dll under ${ORBBEC_SDK_ROOT}; runtime may fail.")
-    endif()
+if(ORBBEC_BUILD_PRODUCER_APP)
+  add_executable(orbbec_camera_producer
+    src/producer_main.cpp
+  )
 
-    if(EXISTS "${ORBBEC_SDK_ROOT}/bin/OrbbecSDKConfig.xml")
-      add_custom_command(TARGET orbbec_foxglove_bridge POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${ORBBEC_SDK_ROOT}/bin/OrbbecSDKConfig.xml"
-          "$<TARGET_FILE_DIR:orbbec_foxglove_bridge>/OrbbecSDKConfig.xml"
-      )
-    endif()
+  target_include_directories(orbbec_camera_producer PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  )
 
-    if(EXISTS "${ORBBEC_SDK_ROOT}/bin/extensions")
-      add_custom_command(TARGET orbbec_foxglove_bridge POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-          "${ORBBEC_SDK_ROOT}/bin/extensions"
-          "$<TARGET_FILE_DIR:orbbec_foxglove_bridge>/extensions"
-      )
-    endif()
-  endif()
+  target_link_libraries(orbbec_camera_producer PRIVATE
+    orbbec::core
+  )
+
+  orbbec_apply_common_cxx_options(orbbec_camera_producer)
+  orbbec_add_windows_runtime_assets(orbbec_camera_producer)
 endif()

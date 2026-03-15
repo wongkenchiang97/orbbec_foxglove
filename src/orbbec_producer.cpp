@@ -682,6 +682,7 @@ void OrbbecProducer::start() {
     }
 
     CameraCalibrationEvent calibration_event;
+    calibration_event.source_id = options_.source_id;
     calibration_event.timestamp_us = nowEpochUs();
     if (selected_color_profile) {
       try {
@@ -722,6 +723,7 @@ void OrbbecProducer::start() {
         !options_.color_frame_id.empty() && !options_.depth_frame_id.empty()) {
       try {
         ExtrinsicsEvent extrinsics_event;
+        extrinsics_event.source_id = options_.source_id;
         extrinsics_event.timestamp_us = nowEpochUs();
         ExtrinsicTransformEvent transform;
         transform.parent_frame_id = options_.color_frame_id;
@@ -811,8 +813,10 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
       color_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
       depth_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
 
-      const ColorFrameEvent color_event{bestTimestampUs(color_frame), bgr_opt.value()};
-      const DepthFrameEvent depth_event{bestTimestampUs(depth_frame), depth_opt.value()};
+      const ColorFrameEvent color_event{
+          options_.source_id, bestTimestampUs(color_frame), bgr_opt.value()};
+      const DepthFrameEvent depth_event{
+          options_.source_id, bestTimestampUs(depth_frame), depth_opt.value()};
 
       IFrameConsumer* consumer = nullptr;
       ColorCallback color_callback;
@@ -844,7 +848,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
         auto bgr_opt = decodeColorToBgr(color_frame);
         if (bgr_opt.has_value()) {
           color_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
-          const ColorFrameEvent event{bestTimestampUs(color_frame), bgr_opt.value()};
+          const ColorFrameEvent event{
+              options_.source_id, bestTimestampUs(color_frame), bgr_opt.value()};
           IFrameConsumer* consumer = nullptr;
           ColorCallback callback;
           {
@@ -869,7 +874,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
         auto depth_opt = decodeDepthToMono16(depth_frame);
         if (depth_opt.has_value()) {
           depth_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
-          const DepthFrameEvent event{bestTimestampUs(depth_frame), depth_opt.value()};
+          const DepthFrameEvent event{
+              options_.source_id, bestTimestampUs(depth_frame), depth_opt.value()};
           IFrameConsumer* consumer = nullptr;
           DepthCallback callback;
           {
@@ -902,6 +908,7 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
     imu_framesets_received_.fetch_add(1, std::memory_order_relaxed);
 
     ImuSampleEvent event;
+    event.source_id = options_.source_id;
     uint64_t device_timestamp_us = 0;
 
     auto accel_raw = frame_set->getFrame(OB_FRAME_ACCEL);

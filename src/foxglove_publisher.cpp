@@ -48,6 +48,7 @@ std::string imuJsonSchema() {
   return R"({
     "type":"object",
     "properties":{
+      "source_id":{"type":"integer"},
       "timestamp_sec":{"type":"number"},
       "device_timestamp_sec":{"type":"number"},
       "dt_sec":{"type":"number"},
@@ -63,6 +64,7 @@ std::string accelIntrinsicJsonSchema() {
   return R"({
     "type":"object",
     "properties":{
+      "source_id":{"type":"integer"},
       "frame_id":{"type":"string"},
       "accel_intrinsic":{
         "type":"object",
@@ -84,6 +86,7 @@ std::string gyroIntrinsicJsonSchema() {
   return R"({
     "type":"object",
     "properties":{
+      "source_id":{"type":"integer"},
       "frame_id":{"type":"string"},
       "gyro_intrinsic":{
         "type":"object",
@@ -104,6 +107,7 @@ std::string diagnosticsJsonSchema() {
   return R"({
     "type":"object",
     "properties":{
+      "source_id":{"type":"integer"},
       "timestamp_sec":{"type":"number"},
       "window_sec":{"type":"number"},
       "rates_hz":{
@@ -161,6 +165,7 @@ void writeJsonArray(std::ostringstream& out, const char* key, const double (&val
 }
 
 std::string makeImuJson(
+    uint32_t source_id,
     double timestamp_sec,
     double device_timestamp_sec,
     double dt_sec,
@@ -174,6 +179,7 @@ std::string makeImuJson(
   out.setf(std::ios::fixed);
   out.precision(9);
   out << "{";
+  out << "\"source_id\":" << source_id << ",";
   out << "\"timestamp_sec\":" << timestamp_sec << ",";
   out << "\"device_timestamp_sec\":" << device_timestamp_sec << ",";
   out << "\"dt_sec\":" << dt_sec << ",";
@@ -191,11 +197,13 @@ std::string makeImuJson(
   return out.str();
 }
 
-std::string makeAccelIntrinsicJson(const std::string& frame_id, const OBAccelIntrinsic& intrinsic) {
+std::string makeAccelIntrinsicJson(
+    uint32_t source_id, const std::string& frame_id, const OBAccelIntrinsic& intrinsic) {
   std::ostringstream out;
   out.setf(std::ios::fixed);
   out.precision(9);
   out << "{";
+  out << "\"source_id\":" << source_id << ",";
   out << "\"frame_id\":\"" << frame_id << "\",";
   out << "\"accel_intrinsic\":{";
   out << "\"noise_density\":" << intrinsic.noiseDensity << ",";
@@ -213,11 +221,13 @@ std::string makeAccelIntrinsicJson(const std::string& frame_id, const OBAccelInt
   return out.str();
 }
 
-std::string makeGyroIntrinsicJson(const std::string& frame_id, const OBGyroIntrinsic& intrinsic) {
+std::string makeGyroIntrinsicJson(
+    uint32_t source_id, const std::string& frame_id, const OBGyroIntrinsic& intrinsic) {
   std::ostringstream out;
   out.setf(std::ios::fixed);
   out.precision(9);
   out << "{";
+  out << "\"source_id\":" << source_id << ",";
   out << "\"frame_id\":\"" << frame_id << "\",";
   out << "\"gyro_intrinsic\":{";
   out << "\"noise_density\":" << intrinsic.noiseDensity << ",";
@@ -234,6 +244,7 @@ std::string makeGyroIntrinsicJson(const std::string& frame_id, const OBGyroIntri
 }
 
 std::string makeDiagnosticsJson(
+    uint32_t source_id,
     double timestamp_sec,
     double window_sec,
     const bridge::OrbbecProducer::Stats& producer_stats,
@@ -246,6 +257,7 @@ std::string makeDiagnosticsJson(
   out.setf(std::ios::fixed);
   out.precision(6);
   out << "{";
+  out << "\"source_id\":" << source_id << ",";
   out << "\"timestamp_sec\":" << timestamp_sec << ",";
   out << "\"window_sec\":" << window_sec << ",";
   out << "\"rates_hz\":{";
@@ -628,6 +640,7 @@ void FoxglovePublisher::start() {
   }
 
   std::cout << "Foxglove WebSocket started at ws://" << options_.host << ":" << options_.port << "\n";
+  std::cout << "Bound source_id=" << options_.source_id << "\n";
   std::cout << "Channel IDs:\n";
   std::cout << "  /camera/color/image_raw id=" << color_channel_->id() << "\n";
   std::cout << "  /camera/color/camera_info id=" << color_camera_info_channel_->id() << "\n";
@@ -731,22 +744,37 @@ void FoxglovePublisher::stop() {
 }
 
 void FoxglovePublisher::onColorFrame(const ColorFrameEvent& event) {
+  if (!acceptsSource(event.source_id)) {
+    return;
+  }
   publishColor(event);
 }
 
 void FoxglovePublisher::onDepthFrame(const DepthFrameEvent& event) {
+  if (!acceptsSource(event.source_id)) {
+    return;
+  }
   publishDepth(event);
 }
 
 void FoxglovePublisher::onImuSample(const ImuSampleEvent& event) {
+  if (!acceptsSource(event.source_id)) {
+    return;
+  }
   publishImu(event);
 }
 
 void FoxglovePublisher::onExtrinsics(const ExtrinsicsEvent& event) {
+  if (!acceptsSource(event.source_id)) {
+    return;
+  }
   publishExtrinsics(event);
 }
 
 void FoxglovePublisher::onCameraCalibration(const CameraCalibrationEvent& event) {
+  if (!acceptsSource(event.source_id)) {
+    return;
+  }
   publishCameraCalibration(event);
 }
 
@@ -923,6 +951,7 @@ void FoxglovePublisher::publishImu(const ImuSampleEvent& event) {
   const double ts_sec = static_cast<double>(ts_us) * 1e-6;
   const double device_ts_sec = static_cast<double>(event.device_timestamp_us) * 1e-6;
   const std::string json = makeImuJson(
+      event.source_id,
       ts_sec,
       device_ts_sec,
       event.dt_sec,
@@ -953,7 +982,8 @@ void FoxglovePublisher::publishAccelIntrinsic(const ImuSampleEvent& event) {
     return;
   }
 
-  const std::string json = makeAccelIntrinsicJson(options_.color_frame_id, event.accel_intrinsic);
+  const std::string json =
+      makeAccelIntrinsicJson(event.source_id, options_.color_frame_id, event.accel_intrinsic);
   foxglove::FoxgloveError log_err = foxglove::FoxgloveError::Ok;
   {
     std::lock_guard<std::mutex> lock(log_mutex_);
@@ -976,7 +1006,8 @@ void FoxglovePublisher::publishGyroIntrinsic(const ImuSampleEvent& event) {
     return;
   }
 
-  const std::string json = makeGyroIntrinsicJson(options_.color_frame_id, event.gyro_intrinsic);
+  const std::string json =
+      makeGyroIntrinsicJson(event.source_id, options_.color_frame_id, event.gyro_intrinsic);
   foxglove::FoxgloveError log_err = foxglove::FoxgloveError::Ok;
   {
     std::lock_guard<std::mutex> lock(log_mutex_);
@@ -1087,7 +1118,7 @@ void FoxglovePublisher::publishDiagnostics(
   const uint64_t ts_us = normalizeTimestampUs(timestamp_us);
   const double ts_sec = static_cast<double>(ts_us) * 1e-6;
   const std::string json =
-      makeDiagnosticsJson(ts_sec, window_sec, producer_stats, publisher_stats);
+      makeDiagnosticsJson(options_.source_id, ts_sec, window_sec, producer_stats, publisher_stats);
 
   foxglove::FoxgloveError log_err = foxglove::FoxgloveError::Ok;
   {
@@ -1128,6 +1159,10 @@ FoxglovePublisher::Stats FoxglovePublisher::consumeStats() {
   stats.imu_gyro_intrinsic_sink =
       imu_gyro_intrinsic_channel_.has_value() && imu_gyro_intrinsic_channel_->has_sinks();
   return stats;
+}
+
+bool FoxglovePublisher::acceptsSource(uint32_t source_id) const {
+  return source_id == options_.source_id;
 }
 
 }  // namespace bridge

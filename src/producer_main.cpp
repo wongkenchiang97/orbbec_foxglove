@@ -9,21 +9,16 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <utility>
 #include <vector>
 
-#include <libobsensor/ObSensor.hpp>
-
-#include "frame_dispatcher.hpp"
-#include "foxglove_publisher.hpp"
 #include "orbbec_producer.hpp"
 
 namespace {
 
-struct BridgeOptions {
+struct ProducerAppOptions {
   uint32_t source_id = 0;
-  std::string host = "0.0.0.0";
-  uint16_t port = 8765;
+  uint16_t port = 8765;  // accepted for config compatibility, not used by producer app
+  std::string host = "0.0.0.0";  // accepted for config compatibility, not used by producer app
   uint32_t color_width = 640;
   uint32_t color_height = 480;
   uint32_t color_fps = 30;
@@ -47,19 +42,10 @@ void signalHandler(int) {
   g_running.store(false);
 }
 
-uint64_t nowEpochUs() {
-  return static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count());
-}
-
 void printUsage() {
   std::cout
-      << "Usage: orbbec_foxglove_bridge [options]\n"
+      << "Usage: orbbec_camera_producer [options]\n"
       << "Options:\n"
-      << "  --host <ip>                WebSocket bind address (default: 0.0.0.0)\n"
-      << "  --port <num>               WebSocket port (default: 8765)\n"
       << "  --source-id <num>          Camera source id (default: 0)\n"
       << "  --color-width <num>        Color width (default: 640)\n"
       << "  --color-height <num>       Color height (default: 480)\n"
@@ -193,7 +179,7 @@ std::optional<std::string> findDefaultConfigPath() {
 }
 
 bool applyOptionKeyValue(
-    BridgeOptions& options,
+    ProducerAppOptions& options,
     const std::string& key_raw,
     const std::string& value,
     std::string& err) {
@@ -314,7 +300,7 @@ bool applyOptionKeyValue(
   return false;
 }
 
-bool loadConfigFile(const std::string& path, BridgeOptions& options, std::string& err) {
+bool loadConfigFile(const std::string& path, ProducerAppOptions& options, std::string& err) {
   std::ifstream in(path);
   if (!in.is_open()) {
     err = "Failed to open config file: " + path;
@@ -362,8 +348,8 @@ bool loadConfigFile(const std::string& path, BridgeOptions& options, std::string
   return true;
 }
 
-std::optional<BridgeOptions> parseArgs(int argc, char** argv) {
-  BridgeOptions options;
+std::optional<ProducerAppOptions> parseArgs(int argc, char** argv) {
+  ProducerAppOptions options;
   std::string explicit_config_path;
 
   for (int i = 1; i < argc; ++i) {
@@ -440,7 +426,7 @@ int main(int argc, char** argv) {
   if (!options_opt.has_value()) {
     return 1;
   }
-  const BridgeOptions options = options_opt.value();
+  const ProducerAppOptions options = options_opt.value();
   if (options.config_loaded) {
     std::cout << "Loaded config: " << options.config_path << "\n";
   }
@@ -449,18 +435,6 @@ int main(int argc, char** argv) {
   std::signal(SIGTERM, signalHandler);
 
   try {
-    bridge::FoxglovePublisher::Options publisher_options;
-    publisher_options.source_id = options.source_id;
-    publisher_options.host = options.host;
-    publisher_options.port = options.port;
-    publisher_options.color_frame_id = options.frame_id;
-    publisher_options.depth_frame_id = options.depth_frame_id;
-    publisher_options.depth_enabled = options.depth_enabled;
-    publisher_options.depth_preview_enabled = options.depth_enabled;
-
-    bridge::FoxglovePublisher publisher(std::move(publisher_options));
-    publisher.start();
-
     bridge::OrbbecProducer::Options producer_options;
     producer_options.source_id = options.source_id;
     producer_options.color_width = options.color_width;
@@ -477,34 +451,41 @@ int main(int argc, char** argv) {
     producer_options.depth_frame_id = options.depth_frame_id;
     producer_options.extensions_dir = options.extensions_dir;
 
-    bridge::FrameDispatcher frame_dispatcher;
-    frame_dispatcher.addConsumer(&publisher);
-
     bridge::OrbbecProducer producer(std::move(producer_options));
-    producer.setFrameConsumer(&frame_dispatcher);
-
     producer.start();
+
+    std::cout << "orbbec_camera_producer started for source_id=" << options.source_id
+              << ". Press Ctrl+C to stop.\n";
 
     auto last_log = std::chrono::steady_clock::now();
     while (g_running.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
       const auto now = std::chrono::steady_clock::now();
       if (now - last_log >= std::chrono::seconds(1)) {
         const double elapsed_s = std::chrono::duration<double>(now - last_log).count();
+        const auto stats = producer.consumeStats();
 
-        const auto producer_stats = producer.consumeStats();
-        const auto publisher_stats = publisher.consumeStats();
+        auto hz = [elapsed_s](uint64_t count) {
+          return elapsed_s > 0.0 ? static_cast<double>(count) / elapsed_s : 0.0;
+        };
 
-        publisher.publishDiagnostics(
-            nowEpochUs(), elapsed_s, producer_stats, publisher_stats);
+        std::cout.setf(std::ios::fixed);
+        std::cout.precision(1);
+        std::cout << "Producer rates[" << elapsed_s << "s]:"
+                  << " color_rx=" << hz(stats.color_frames_received) << "Hz"
+                  << " color_decode=" << hz(stats.color_frames_decoded) << "Hz"
+                  << " depth_rx=" << hz(stats.depth_frames_received) << "Hz"
+                  << " depth_decode=" << hz(stats.depth_frames_decoded) << "Hz"
+                  << " imu_fs=" << hz(stats.imu_framesets_received) << "Hz"
+                  << " accel=" << hz(stats.imu_accel_samples) << "Hz"
+                  << " gyro=" << hz(stats.imu_gyro_samples) << "Hz\n";
 
         last_log = now;
       }
     }
 
     producer.stop();
-    publisher.stop();
+    std::cout << "orbbec_camera_producer stopped.\n";
     return 0;
   } catch (const ob::Error& e) {
     std::cerr << "Orbbec initialization/runtime error: " << e.getMessage() << "\n";
