@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.0.7 - 2026-03-18
+
+### Added
+
+- Added `AsyncFrameConsumer` as an `IFrameConsumer` wrapper for non-blocking downstream delivery.
+- Added per-stream async queue controls:
+  - independent color/depth/misc queues and queue-size options
+  - per-stream async enable switches (`async_color`, `async_depth`, `async_imu`, `async_extrinsics`, `async_camera_calibration`)
+  - queue drop policy (`drop_oldest_when_full`) and drain behavior (`drain_on_stop`)
+- Added optional color-depth pairing by measurement timestamp:
+  - `sync_color_depth_by_device_ts`
+  - `color_depth_sync_tolerance_us`
+- Added async runtime counters via `AsyncFrameConsumer::consumeStats()`:
+  - enqueued/dispatched/dropped totals
+  - per-stream drop counters and callback error counters
+  - live queue-size snapshots.
+
+### Changed
+
+- Refactored async dispatch internals from a single mixed queue to dedicated RGB-D and misc workers to reduce head-of-line blocking.
+- Updated dispatch path to keep RGB-D sync behavior explicit when pairing by device timestamp is enabled.
+
+### Fixed
+
+- Fixed template dispatch compatibility issue on MSVC (`C2664`) by making direct event dispatch type-explicit in `AsyncFrameConsumer`.
+
 ## v0.0.6 - 2026-03-15
 
 ### Added

@@ -17,12 +17,14 @@ namespace bridge {
 struct ColorFrameEvent {
   uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
+  uint64_t device_timestamp_us = 0;
   cv::Mat bgr;
 };
 
 struct DepthFrameEvent {
   uint32_t source_id = 0;
   uint64_t timestamp_us = 0;
+  uint64_t device_timestamp_us = 0;
   cv::Mat depth_mono16;
 };
 

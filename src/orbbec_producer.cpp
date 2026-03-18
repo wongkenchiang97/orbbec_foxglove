@@ -813,10 +813,28 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
       color_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
       depth_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
 
+      uint64_t synced_device_ts_us = 0;
+      {
+        const uint64_t color_device_ts_us = deviceTimestampUs(color_frame);
+        const uint64_t depth_device_ts_us = deviceTimestampUs(depth_frame);
+        if (color_device_ts_us != 0 && depth_device_ts_us != 0) {
+          synced_device_ts_us = std::max(color_device_ts_us, depth_device_ts_us);
+        } else {
+          synced_device_ts_us =
+              color_device_ts_us != 0 ? color_device_ts_us : depth_device_ts_us;
+        }
+      }
+
       const ColorFrameEvent color_event{
-          options_.source_id, bestTimestampUs(color_frame), bgr_opt.value()};
+          options_.source_id,
+          bestTimestampUs(color_frame),
+          synced_device_ts_us,
+          bgr_opt.value()};
       const DepthFrameEvent depth_event{
-          options_.source_id, bestTimestampUs(depth_frame), depth_opt.value()};
+          options_.source_id,
+          bestTimestampUs(depth_frame),
+          synced_device_ts_us,
+          depth_opt.value()};
 
       IFrameConsumer* consumer = nullptr;
       ColorCallback color_callback;
@@ -849,7 +867,10 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
         if (bgr_opt.has_value()) {
           color_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
           const ColorFrameEvent event{
-              options_.source_id, bestTimestampUs(color_frame), bgr_opt.value()};
+              options_.source_id,
+              bestTimestampUs(color_frame),
+              deviceTimestampUs(color_frame),
+              bgr_opt.value()};
           IFrameConsumer* consumer = nullptr;
           ColorCallback callback;
           {
@@ -875,7 +896,10 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
         if (depth_opt.has_value()) {
           depth_frames_decoded_.fetch_add(1, std::memory_order_relaxed);
           const DepthFrameEvent event{
-              options_.source_id, bestTimestampUs(depth_frame), depth_opt.value()};
+              options_.source_id,
+              bestTimestampUs(depth_frame),
+              deviceTimestampUs(depth_frame),
+              depth_opt.value()};
           IFrameConsumer* consumer = nullptr;
           DepthCallback callback;
           {
