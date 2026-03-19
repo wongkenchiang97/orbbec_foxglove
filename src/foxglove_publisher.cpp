@@ -492,7 +492,10 @@ void FoxglovePublisher::start() {
 
   auto server_result = foxglove::WebSocketServer::create(std::move(server_options));
   if (!server_result.has_value()) {
-    throw std::runtime_error("Failed to create Foxglove WebSocket server");
+    std::ostringstream err;
+    err << "Failed to create Foxglove WebSocket server: "
+        << foxglove::strerror(server_result.error());
+    throw std::runtime_error(err.str());
   }
   server_ = std::move(server_result).value();
 

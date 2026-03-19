@@ -48,8 +48,10 @@ class AsyncFrameConsumer final : public IFrameConsumer {
     uint64_t misc_queue_size = 0;
   };
 
-  explicit AsyncFrameConsumer(IFrameConsumer& downstream, Options options = Options{})
+  AsyncFrameConsumer(IFrameConsumer& downstream, Options options)
       : downstream_(downstream), options_(std::move(options)) {}
+  explicit AsyncFrameConsumer(IFrameConsumer& downstream)
+      : AsyncFrameConsumer(downstream, Options{}) {}
 
   ~AsyncFrameConsumer() override {
     stop();

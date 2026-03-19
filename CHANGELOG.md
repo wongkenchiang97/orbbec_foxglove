@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.0.8 - 2026-03-19
+
+### Added
+
+- Added Linux build-script auto-detection for Orbbec SDK roots under `/opt/OrbbecSDK*` when `ORBBEC_SDK_ROOT` is not explicitly set.
+- Added Foxglove SDK header-path detection for both supported layouts:
+  - `<root>/include/foxglove/server.hpp`
+  - `<root>/cpp/foxglove/include/foxglove/server.hpp`
+- Added startup retry/backoff logic in `OrbbecProducer::start()` for transient USB open failures.
+
+### Changed
+
+- Extended Foxglove CMake integration to support both prebuilt and monorepo SDK layouts, including foxglove-c include/lib path discovery.
+- Improved default Linux build behavior to fall back to producer-only targets when Foxglove SDK is missing and no explicit Foxglove build toggles are provided.
+
+### Fixed
+
+- Improved Foxglove WebSocket startup diagnostics by including backend error strings (`foxglove::strerror`) in failure messages.
+- Fixed C++ constructor default-argument compatibility issue in `AsyncFrameConsumer` on GCC toolchains by switching to explicit delegating constructors.
+- Improved USB access-denied startup error messaging with clearer operator guidance (busy device vs permission/udev state).
+
 ## v0.0.7 - 2026-03-18
 
 ### Added

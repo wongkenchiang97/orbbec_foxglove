@@ -5,7 +5,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-build-ninja-linux}"
 CMAKE_EXE="${CMAKE_EXE:-cmake}"
 NINJA_EXE="${NINJA_EXE:-ninja}"
+ORBBEC_SDK_ROOT_WAS_SET=0
+if [[ -v ORBBEC_SDK_ROOT ]]; then
+  ORBBEC_SDK_ROOT_WAS_SET=1
+fi
 ORBBEC_SDK_ROOT="${ORBBEC_SDK_ROOT:-/opt/orbbec-sdk}"
+ORBBEC_BUILD_FOXGLOVE_SINK_WAS_SET=0
+if [[ -v ORBBEC_BUILD_FOXGLOVE_SINK ]]; then
+  ORBBEC_BUILD_FOXGLOVE_SINK_WAS_SET=1
+fi
+ORBBEC_BUILD_BRIDGE_APP_WAS_SET=0
+if [[ -v ORBBEC_BUILD_BRIDGE_APP ]]; then
+  ORBBEC_BUILD_BRIDGE_APP_WAS_SET=1
+fi
+ORBBEC_BUILD_PRODUCER_APP_WAS_SET=0
+if [[ -v ORBBEC_BUILD_PRODUCER_APP ]]; then
+  ORBBEC_BUILD_PRODUCER_APP_WAS_SET=1
+fi
+FOXGLOVE_SDK_ROOT_WAS_SET=0
+if [[ -v FOXGLOVE_SDK_ROOT ]]; then
+  FOXGLOVE_SDK_ROOT_WAS_SET=1
+fi
 FOXGLOVE_SDK_ROOT="${FOXGLOVE_SDK_ROOT:-${SCRIPT_DIR}/../foxglove-sdk}"
 ORBBEC_BUILD_FOXGLOVE_SINK="${ORBBEC_BUILD_FOXGLOVE_SINK:-ON}"
 ORBBEC_BUILD_BRIDGE_APP="${ORBBEC_BUILD_BRIDGE_APP:-ON}"
@@ -20,7 +40,7 @@ print_usage() {
 Usage: ./build_ninja_linux.sh [--configure-only]
 
 Environment overrides:
-  ORBBEC_SDK_ROOT      Default: /opt/orbbec-sdk
+  ORBBEC_SDK_ROOT      Default: /opt/orbbec-sdk (auto-detects /opt/OrbbecSDK*)
   FOXGLOVE_SDK_ROOT    Default: ../foxglove-sdk (relative to this script)
   ORBBEC_BUILD_FOXGLOVE_SINK Default: ON
   ORBBEC_BUILD_BRIDGE_APP    Default: ON
@@ -36,6 +56,19 @@ Examples:
   ORBBEC_BUILD_FOXGLOVE_SINK=OFF ORBBEC_BUILD_BRIDGE_APP=OFF ORBBEC_BUILD_PRODUCER_APP=ON ./build_ninja_linux.sh
   ./build_ninja_linux.sh --configure-only
 EOF
+}
+
+resolve_foxglove_server_header() {
+  local sdk_root="$1"
+  if [[ -f "${sdk_root}/include/foxglove/server.hpp" ]]; then
+    printf '%s\n' "${sdk_root}/include/foxglove/server.hpp"
+    return 0
+  fi
+  if [[ -f "${sdk_root}/cpp/foxglove/include/foxglove/server.hpp" ]]; then
+    printf '%s\n' "${sdk_root}/cpp/foxglove/include/foxglove/server.hpp"
+    return 0
+  fi
+  return 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -56,10 +89,41 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "${ORBBEC_SDK_ROOT_WAS_SET}" -eq 0 && ! -f "${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp" ]]; then
+  shopt -s nullglob
+  for candidate in /opt/OrbbecSDK*; do
+    if [[ -f "${candidate}/include/libobsensor/ObSensor.hpp" ]]; then
+      ORBBEC_SDK_ROOT="${candidate}"
+      echo "INFO: Auto-detected ORBBEC_SDK_ROOT=${ORBBEC_SDK_ROOT}" >&2
+      break
+    fi
+  done
+  shopt -u nullglob
+fi
+
 if [[ ! -f "${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp" ]]; then
   echo "ERROR: ORBBEC_SDK_ROOT is invalid: ${ORBBEC_SDK_ROOT}" >&2
   echo "Expected: ${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp" >&2
   exit 1
+fi
+
+FOXGLOVE_SERVER_HEADER=""
+if [[ "${ORBBEC_BUILD_FOXGLOVE_SINK}" == "ON" ]]; then
+  FOXGLOVE_SERVER_HEADER="$(resolve_foxglove_server_header "${FOXGLOVE_SDK_ROOT}" || true)"
+fi
+
+if [[ "${ORBBEC_BUILD_FOXGLOVE_SINK}" == "ON" && -z "${FOXGLOVE_SERVER_HEADER}" ]]; then
+  # Keep strict validation for explicit configs, but make default invocation
+  # usable by falling back to producer-only mode when foxglove-sdk is absent.
+  if [[ "${ORBBEC_BUILD_FOXGLOVE_SINK_WAS_SET}" -eq 0 &&
+        "${ORBBEC_BUILD_BRIDGE_APP_WAS_SET}" -eq 0 &&
+        "${ORBBEC_BUILD_PRODUCER_APP_WAS_SET}" -eq 0 &&
+        "${FOXGLOVE_SDK_ROOT_WAS_SET}" -eq 0 ]]; then
+    echo "INFO: FOXGLOVE_SDK_ROOT is missing (${FOXGLOVE_SDK_ROOT}); falling back to producer-only build." >&2
+    ORBBEC_BUILD_FOXGLOVE_SINK=OFF
+    ORBBEC_BUILD_BRIDGE_APP=OFF
+    ORBBEC_BUILD_PRODUCER_APP=ON
+  fi
 fi
 
 if [[ "${ORBBEC_BUILD_BRIDGE_APP}" == "ON" && "${ORBBEC_BUILD_FOXGLOVE_SINK}" != "ON" ]]; then
@@ -80,9 +144,12 @@ CONFIGURE_ARGS=(
 )
 
 if [[ "${ORBBEC_BUILD_FOXGLOVE_SINK}" == "ON" ]]; then
-  if [[ ! -f "${FOXGLOVE_SDK_ROOT}/include/foxglove/server.hpp" ]]; then
+  FOXGLOVE_SERVER_HEADER="$(resolve_foxglove_server_header "${FOXGLOVE_SDK_ROOT}" || true)"
+  if [[ -z "${FOXGLOVE_SERVER_HEADER}" ]]; then
     echo "ERROR: FOXGLOVE_SDK_ROOT is invalid: ${FOXGLOVE_SDK_ROOT}" >&2
-    echo "Expected: ${FOXGLOVE_SDK_ROOT}/include/foxglove/server.hpp" >&2
+    echo "Expected one of:" >&2
+    echo "  ${FOXGLOVE_SDK_ROOT}/include/foxglove/server.hpp" >&2
+    echo "  ${FOXGLOVE_SDK_ROOT}/cpp/foxglove/include/foxglove/server.hpp" >&2
     exit 1
   fi
   CONFIGURE_ARGS+=(

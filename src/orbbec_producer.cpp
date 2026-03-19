@@ -1,18 +1,50 @@
 #include "orbbec_producer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
 namespace {
+
+std::string toLowerCopy(std::string text) {
+  for (char& ch : text) {
+    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  }
+  return text;
+}
+
+bool isRetryableUsbOpenFailure(const std::string& message) {
+  const std::string normalized = toLowerCopy(message);
+  return normalized.find("openusbdevice failed") != std::string::npos ||
+         normalized.find("failed to open usb device") != std::string::npos ||
+         normalized.find("access denied (insufficient permissions)") != std::string::npos ||
+         normalized.find("camera_disconnected_exception") != std::string::npos;
+}
+
+bool isUsbAccessDeniedFailure(const std::string& message) {
+  const std::string normalized = toLowerCopy(message);
+  return normalized.find("access denied (insufficient permissions)") != std::string::npos ||
+         normalized.find("openusbdevice failed") != std::string::npos;
+}
+
+std::string withUsbOpenHint(const std::string& message) {
+  std::string enriched = message;
+  enriched +=
+      " (Orbbec USB open failed. Usually another process is already using the camera, or udev "
+      "permissions were not applied after reconnect. Stop other camera processes and retry after "
+      "replug/udev reload.)";
+  return enriched;
+}
 
 struct ImuSampleRateChoice {
   OBIMUSampleRate rate;
@@ -439,7 +471,11 @@ void OrbbecProducer::start() {
     throw std::runtime_error("OrbbecProducer already started");
   }
 
-  try {
+  static constexpr int kMaxStartAttempts = 3;
+  static const auto kStartRetryDelay = std::chrono::milliseconds(350);
+
+  for (int attempt = 1; attempt <= kMaxStartAttempts; ++attempt) {
+    try {
     if (!options_.extensions_dir.empty()) {
       ob::Context::setExtensionsDirectory(options_.extensions_dir.c_str());
     }
@@ -751,10 +787,35 @@ void OrbbecProducer::start() {
         std::cerr << "Depth-color extrinsics unavailable: " << e.what() << "\n";
       }
     }
-  } catch (...) {
-    stop();
-    throw;
+      return;
+    } catch (const std::exception& e) {
+      const std::string error_message = e.what();
+      const bool retryable = isRetryableUsbOpenFailure(error_message);
+      const bool last_attempt = attempt == kMaxStartAttempts;
+
+      stop();
+
+      if (retryable && !last_attempt) {
+        std::cerr << "Orbbec start attempt " << attempt << "/" << kMaxStartAttempts
+                  << " failed: " << error_message
+                  << ". Retrying...\n";
+        running_.store(true);
+        std::this_thread::sleep_for(kStartRetryDelay);
+        continue;
+      }
+
+      if (isUsbAccessDeniedFailure(error_message)) {
+        throw std::runtime_error(withUsbOpenHint(error_message));
+      }
+      throw;
+    } catch (...) {
+      stop();
+      throw;
+    }
   }
+
+  stop();
+  throw std::runtime_error("Failed to start OrbbecProducer after retries");
 }
 
 void OrbbecProducer::stop() {

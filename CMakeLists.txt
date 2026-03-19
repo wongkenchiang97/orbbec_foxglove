@@ -115,30 +115,90 @@ target_link_libraries(orbbec_core
 orbbec_apply_common_cxx_options(orbbec_core)
 
 if(ORBBEC_BUILD_FOXGLOVE_SINK)
-  if(NOT EXISTS "${FOXGLOVE_SDK_ROOT}/include/foxglove/server.hpp")
+  set(FOXGLOVE_CPP_INCLUDE_DIR "")
+  set(FOXGLOVE_CPP_SRC_DIR "")
+  set(FOXGLOVE_C_INCLUDE_DIR "")
+  set(FOXGLOVE_C_LIBRARY_HINTS "")
+
+  if(EXISTS "${FOXGLOVE_SDK_ROOT}/include/foxglove/server.hpp" AND
+     EXISTS "${FOXGLOVE_SDK_ROOT}/src")
+    # Prebuilt SDK layout (or sdk/cpp/foxglove subdir used as root).
+    set(FOXGLOVE_CPP_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/include")
+    set(FOXGLOVE_CPP_SRC_DIR "${FOXGLOVE_SDK_ROOT}/src")
+    if(EXISTS "${FOXGLOVE_SDK_ROOT}/include/foxglove-c/foxglove-c.h")
+      set(FOXGLOVE_C_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/include")
+    endif()
+    list(APPEND FOXGLOVE_C_LIBRARY_HINTS
+      "${FOXGLOVE_SDK_ROOT}/lib"
+      "${FOXGLOVE_SDK_ROOT}/lib64"
+      "${FOXGLOVE_SDK_ROOT}/../../c/target/release"
+      "${FOXGLOVE_SDK_ROOT}/../../target/release"
+      "${FOXGLOVE_SDK_ROOT}/../c/target/release"
+      "${FOXGLOVE_SDK_ROOT}/../target/release"
+      "${FOXGLOVE_SDK_ROOT}/../../c/target/debug"
+      "${FOXGLOVE_SDK_ROOT}/../../target/debug"
+      "${FOXGLOVE_SDK_ROOT}/../c/target/debug"
+      "${FOXGLOVE_SDK_ROOT}/../target/debug"
+    )
+  elseif(EXISTS "${FOXGLOVE_SDK_ROOT}/cpp/foxglove/include/foxglove/server.hpp" AND
+         EXISTS "${FOXGLOVE_SDK_ROOT}/cpp/foxglove/src")
+    # Foxglove SDK monorepo layout.
+    set(FOXGLOVE_CPP_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/cpp/foxglove/include")
+    set(FOXGLOVE_CPP_SRC_DIR "${FOXGLOVE_SDK_ROOT}/cpp/foxglove/src")
+    if(EXISTS "${FOXGLOVE_SDK_ROOT}/c/include/foxglove-c/foxglove-c.h")
+      set(FOXGLOVE_C_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/c/include")
+    endif()
+    list(APPEND FOXGLOVE_C_LIBRARY_HINTS
+      "${FOXGLOVE_SDK_ROOT}/lib"
+      "${FOXGLOVE_SDK_ROOT}/c/target/release"
+      "${FOXGLOVE_SDK_ROOT}/target/release"
+      "${FOXGLOVE_SDK_ROOT}/c/target/debug"
+      "${FOXGLOVE_SDK_ROOT}/target/debug"
+    )
+  else()
     message(FATAL_ERROR
-      "FOXGLOVE_SDK_ROOT is invalid. Expected: ${FOXGLOVE_SDK_ROOT}/include/foxglove/server.hpp")
+      "FOXGLOVE_SDK_ROOT is invalid. Expected one of:\n"
+      "  - <root>/include/foxglove/server.hpp and <root>/src\n"
+      "  - <root>/cpp/foxglove/include/foxglove/server.hpp and <root>/cpp/foxglove/src")
   endif()
+
+  if(FOXGLOVE_C_INCLUDE_DIR STREQUAL "")
+    if(EXISTS "${FOXGLOVE_SDK_ROOT}/c/include/foxglove-c/foxglove-c.h")
+      set(FOXGLOVE_C_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/c/include")
+    elseif(EXISTS "${FOXGLOVE_SDK_ROOT}/../c/include/foxglove-c/foxglove-c.h")
+      set(FOXGLOVE_C_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/../c/include")
+    elseif(EXISTS "${FOXGLOVE_SDK_ROOT}/../../c/include/foxglove-c/foxglove-c.h")
+      set(FOXGLOVE_C_INCLUDE_DIR "${FOXGLOVE_SDK_ROOT}/../../c/include")
+    endif()
+  endif()
+
+  if(FOXGLOVE_C_INCLUDE_DIR STREQUAL "")
+    message(FATAL_ERROR
+      "Could not find foxglove-c headers. Expected foxglove-c/foxglove-c.h near FOXGLOVE_SDK_ROOT=${FOXGLOVE_SDK_ROOT}")
+  endif()
+
+  list(REMOVE_DUPLICATES FOXGLOVE_C_LIBRARY_HINTS)
 
   find_library(FOXGLOVE_C_LIBRARY
     NAMES foxglove libfoxglove
-    PATHS "${FOXGLOVE_SDK_ROOT}/lib"
+    PATHS ${FOXGLOVE_C_LIBRARY_HINTS}
     NO_DEFAULT_PATH
   )
 
   if(NOT FOXGLOVE_C_LIBRARY)
+    string(JOIN ", " FOXGLOVE_C_LIBRARY_HINTS_STRING ${FOXGLOVE_C_LIBRARY_HINTS})
     message(FATAL_ERROR
-      "Could not find foxglove C library in ${FOXGLOVE_SDK_ROOT}/lib")
+      "Could not find foxglove C library (libfoxglove.*). Searched: ${FOXGLOVE_C_LIBRARY_HINTS_STRING}")
   endif()
 
   file(GLOB FOXGLOVE_CPP_SOURCES
-    "${FOXGLOVE_SDK_ROOT}/src/*.cpp"
-    "${FOXGLOVE_SDK_ROOT}/src/server/*.cpp"
+    "${FOXGLOVE_CPP_SRC_DIR}/*.cpp"
+    "${FOXGLOVE_CPP_SRC_DIR}/server/*.cpp"
   )
 
   if(FOXGLOVE_CPP_SOURCES STREQUAL "")
     message(FATAL_ERROR
-      "No Foxglove C++ sources found under ${FOXGLOVE_SDK_ROOT}/src")
+      "No Foxglove C++ sources found under ${FOXGLOVE_CPP_SRC_DIR}")
   endif()
 
   # Local static build of Foxglove C++ layer to keep sink reusable by link target.
@@ -148,7 +208,8 @@ if(ORBBEC_BUILD_FOXGLOVE_SINK)
   add_library(orbbec::foxglove_cpp ALIAS orbbec_foxglove_cpp)
   target_include_directories(orbbec_foxglove_cpp
     PUBLIC
-      "${FOXGLOVE_SDK_ROOT}/include"
+      "${FOXGLOVE_CPP_INCLUDE_DIR}"
+      "${FOXGLOVE_C_INCLUDE_DIR}"
   )
   orbbec_apply_common_cxx_options(orbbec_foxglove_cpp)
 
@@ -160,7 +221,7 @@ if(ORBBEC_BUILD_FOXGLOVE_SINK)
   target_include_directories(orbbec_foxglove_sink
     PUBLIC
       "${CMAKE_CURRENT_SOURCE_DIR}/include"
-      "${FOXGLOVE_SDK_ROOT}/include"
+      "${FOXGLOVE_CPP_INCLUDE_DIR}"
   )
 
   target_link_libraries(orbbec_foxglove_sink
