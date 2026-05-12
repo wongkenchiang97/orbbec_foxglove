@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.1.0 - 2026-05-12
+
+### Added
+
+- Added `orbbec_imu_dt_logger` executable for recording IMU device-timestamp delta samples to CSV.
+- Added CSV fields for elapsed device time, host timestamp, device timestamp, `dt_sec`, `dt_ms`, sample rate, accel values, and gyro values.
+- Added `scripts/plot_imu_dt.py` to plot IMU sample period or sample rate from logger CSV files and export image output via `--output`.
+
+### Changed
+
+- Added CMake build wiring for the IMU dt logger target alongside producer-only builds.
+- Added Python artifact ignores for plot-script bytecode/cache files.
+
 ## v0.0.8 - 2026-03-19
 
 ### Added

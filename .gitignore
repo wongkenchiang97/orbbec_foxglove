@@ -26,3 +26,6 @@ compile_commands.json
 *.log
 Log/
 
+# Python artifacts
+__pycache__/
+*.pyc

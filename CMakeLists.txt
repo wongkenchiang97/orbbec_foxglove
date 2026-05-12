@@ -280,4 +280,19 @@ if(ORBBEC_BUILD_PRODUCER_APP)
 
   orbbec_apply_common_cxx_options(orbbec_camera_producer)
   orbbec_add_windows_runtime_assets(orbbec_camera_producer)
+
+  add_executable(orbbec_imu_dt_logger
+    src/imu_dt_logger.cpp
+  )
+
+  target_include_directories(orbbec_imu_dt_logger PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  )
+
+  target_link_libraries(orbbec_imu_dt_logger PRIVATE
+    orbbec::core
+  )
+
+  orbbec_apply_common_cxx_options(orbbec_imu_dt_logger)
+  orbbec_add_windows_runtime_assets(orbbec_imu_dt_logger)
 endif()
