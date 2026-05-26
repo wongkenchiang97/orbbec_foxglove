@@ -23,6 +23,7 @@ endif()
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 find_package(Threads REQUIRED)
+find_package(GTSAM QUIET)
 
 find_library(ORBBEC_SDK_LIBRARY
   NAMES OrbbecSDK libOrbbecSDK
@@ -295,4 +296,33 @@ if(ORBBEC_BUILD_PRODUCER_APP)
 
   orbbec_apply_common_cxx_options(orbbec_imu_dt_logger)
   orbbec_add_windows_runtime_assets(orbbec_imu_dt_logger)
+
+  add_executable(orbbec_vi_dataset_logger
+    src/vi_dataset_logger.cpp
+  )
+
+  target_include_directories(orbbec_vi_dataset_logger PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  )
+
+  target_link_libraries(orbbec_vi_dataset_logger PRIVATE
+    orbbec::core
+  )
+
+  orbbec_apply_common_cxx_options(orbbec_vi_dataset_logger)
+  orbbec_add_windows_runtime_assets(orbbec_vi_dataset_logger)
+
+  if(GTSAM_FOUND)
+    add_executable(orbbec_imu_preintegration_drift_test
+      src/imu_preintegration_drift_test.cpp
+    )
+
+    target_link_libraries(orbbec_imu_preintegration_drift_test PRIVATE
+      gtsam
+    )
+
+    orbbec_apply_common_cxx_options(orbbec_imu_preintegration_drift_test)
+  else()
+    message(STATUS "GTSAM not found; skipping orbbec_imu_preintegration_drift_test target")
+  endif()
 endif()

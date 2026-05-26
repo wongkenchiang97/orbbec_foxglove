@@ -4,10 +4,11 @@ C++ bridge for Orbbec cameras and Foxglove with Windows and Ubuntu build scripts
 
 - Captures color/depth/IMU from Orbbec SDK
 - Publishes to Foxglove over WebSocket
+- Records color+IMU calibration datasets with device timestamps
 - Uses `config/camera_config.ini` for runtime settings
 - Can also run as a producer-only app without Foxglove dependency
 
-Current baseline release: `v0.0.6` (2026-03-15).  
+Current baseline release: `v0.1.3` (2026-05-22).  
 See [CHANGELOG.md](CHANGELOG.md) for updates.
 
 ## Data Flow
@@ -139,6 +140,9 @@ The CMake project now exposes reusable library targets:
 - `orbbec::foxglove_sink` (`orbbec_foxglove_sink`): `FoxglovePublisher`
 - `orbbec_foxglove_bridge`: executable app target (current bridge)
 - `orbbec_camera_producer`: executable app target (producer-only, no Foxglove dependency)
+- `orbbec_imu_dt_logger`: producer-only IMU CSV logger with device-timestamp `dt_sec`
+- `orbbec_vi_dataset_logger`: producer-only color+IMU dataset logger for calibration export
+- `orbbec_imu_preintegration_drift_test`: optional GTSAM drift test target when GTSAM is found
 
 Build options:
 
@@ -189,6 +193,33 @@ Optional flags:
 Multi-camera note:
 - `source_id` defaults to `0` for single-camera setups.
 - For multi-camera, run one bridge instance per camera with unique `source_id` (and typically unique `--port`).
+
+## Color+IMU Dataset Logging
+
+Use `orbbec_vi_dataset_logger` to record a file-based calibration dataset before exporting it to Basalt/EuRoC format:
+
+```bash
+build-ninja-linux/orbbec_vi_dataset_logger \
+  --output-dir /path/to/orbbec_vi_dataset \
+  --duration-sec 120 \
+  --color-width 1280 \
+  --color-height 720 \
+  --color-fps 30 \
+  --imu-hz 1000 \
+  --image-format png
+```
+
+Output files:
+- `color/images/*.png`
+- `camera_timestamps.csv`
+- `imu_dt.csv`
+- `camera_intrinsic.yaml`
+
+The logger records color and IMU timestamps from Orbbec device time to avoid host transport jitter in calibration inputs. `camera_intrinsic.yaml` contains factory color intrinsics for the selected stream profile.
+
+Image writing is handled by an async queue so disk writes do not block the SDK callback. The runtime log reports both `image_rx` and `image_written`; if `image_rx` is near the requested FPS but `image_written` falls behind or `dropped` increases, switch to `--image-format jpg` or reduce FPS/resolution.
+
+For camera-IMU calibration, prefer recording the same color resolution and FPS that the VSLAM pipeline will use. Higher resolution can improve corner localization, but then the intrinsics must be scaled and the distortion model must still match the VSLAM image stream.
 
 ## Foxglove Connect
 

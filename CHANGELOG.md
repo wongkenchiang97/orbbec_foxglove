@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.1.4 - 2026-05-26
+
+### Changed
+
+- Updated README documentation for the current calibration capture workflow, including the producer-only IMU logger, color+IMU dataset logger, and optional GTSAM preintegration drift-test targets.
+- Documented the color+IMU dataset logger command, output files, device-timestamp usage, async image-writer diagnostics, and camera-IMU capture guidance.
+- Updated the documented baseline release to `v0.1.3`.
+
+## v0.1.3 - 2026-05-22
+
+### Added
+
+- Added `orbbec_vi_dataset_logger` for color+IMU calibration dataset capture with device timestamps, color images, camera timestamps, IMU CSV, and factory color intrinsics.
+- Added async image writing, configurable image format, image-write quality settings, and image drop/backlog counters to `orbbec_vi_dataset_logger`.
+
+## v0.1.2 - 2026-05-13
+
+### Added
+
+- Added optional GTSAM-based `orbbec_imu_preintegration_drift_test` executable for synthetic or CSV replay IMU drift checks.
+- Added `scripts/plot_preintegration_drift.py` to plot direct gyro integration, GTSAM preintegration mean, and calibrated orientation covariance envelopes.
+- Added replay-window gyro bias estimation option for stationary drift checks.
+
+## v0.1.1 - 2026-05-13
+
+### Added
+
+- Added `scripts/calibrate_imu_allan.py` for AllanTools-based IMU noise calibration from logger CSV files.
+- Added overlapping Allan deviation export, five-term Allan noise-model fitting, Kalibr-style YAML output, and accel/gyro Allan plot generation.
+
 ## v0.1.0 - 2026-05-12
 
 ### Added
