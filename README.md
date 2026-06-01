@@ -201,13 +201,16 @@ Use `orbbec_vi_dataset_logger` to record a file-based calibration dataset before
 ```bash
 build-ninja-linux/orbbec_vi_dataset_logger \
   --output-dir /path/to/orbbec_vi_dataset \
-  --duration-sec 120 \
   --color-width 1280 \
   --color-height 720 \
   --color-fps 30 \
   --imu-hz 1000 \
-  --image-format png
+  --image-format png \
+  --preview 1 \
+  --preview-fps 30
 ```
+
+The logger runs until interrupted. Press `Ctrl+C` in the terminal, or press `q`/`Esc` in the preview window when preview is enabled.
 
 Output files:
 - `color/images/*.png`
@@ -218,6 +221,8 @@ Output files:
 The logger records color and IMU timestamps from Orbbec device time to avoid host transport jitter in calibration inputs. `camera_intrinsic.yaml` contains factory color intrinsics for the selected stream profile.
 
 Image writing is handled by an async queue so disk writes do not block the SDK callback. The runtime log reports both `image_rx` and `image_written`; if `image_rx` is near the requested FPS but `image_written` falls behind or `dropped` increases, switch to `--image-format jpg` or reduce FPS/resolution.
+
+Live preview is optional. Use `--preview 0` or omit `--preview` for headless logging sessions.
 
 For camera-IMU calibration, prefer recording the same color resolution and FPS that the VSLAM pipeline will use. Higher resolution can improve corner localization, but then the intrinsics must be scaled and the distortion model must still match the VSLAM image stream.
 

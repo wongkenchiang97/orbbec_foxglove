@@ -19,6 +19,7 @@
 #include <thread>
 #include <vector>
 
+#include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
 
 #include "orbbec_producer.hpp"
@@ -47,6 +48,8 @@ struct Options {
   uint32_t image_queue_size = 512;
   uint32_t image_writer_threads = 2;
   double duration_sec = 0.0;
+  bool preview = false;
+  double preview_fps = 30.0;
 };
 
 std::atomic<bool> g_running{true};
@@ -77,6 +80,8 @@ void printUsage() {
       << "  --jpeg-quality <0-100>    JPEG quality when --image-format jpg (default: 95)\n"
       << "  --image-queue-size <num>  Max pending images before dropping (default: 512)\n"
       << "  --image-writer-threads <num>  Image writer worker threads (default: 2)\n"
+      << "  --preview <0|1>           Show live color preview window (default: 0)\n"
+      << "  --preview-fps <num>       Preview display FPS when enabled (default: 30)\n"
       << "  --frame-id <name>         Color/IMU frame_id (default: camera_color_optical_frame)\n"
       << "  --extensions-dir <path>   Orbbec extensions directory (optional)\n"
       << "  --help                    Show this help\n";
@@ -228,6 +233,14 @@ Options parseArgs(int argc, char** argv) {
           options.image_writer_threads > 16) {
         throw std::runtime_error("Invalid --image-writer-threads");
       }
+    } else if (arg == "--preview") {
+      if (!parseBool(value, options.preview)) {
+        throw std::runtime_error("Invalid --preview");
+      }
+    } else if (arg == "--preview-fps") {
+      if (!parseNonNegativeDouble(value, options.preview_fps) || options.preview_fps <= 0.0) {
+        throw std::runtime_error("Invalid --preview-fps");
+      }
     } else if (arg == "--frame-id") {
       options.frame_id = value;
     } else if (arg == "--extensions-dir") {
@@ -359,8 +372,10 @@ int main(int argc, char** argv) {
 
     std::mutex io_mutex;
     std::mutex image_queue_mutex;
+    std::mutex preview_mutex;
     std::condition_variable image_queue_cv;
     std::deque<ImageJob> image_queue;
+    cv::Mat latest_preview_bgr;
     std::atomic<bool> image_writer_stop{false};
     std::atomic<uint64_t> imu_rows{0};
     std::atomic<uint64_t> image_received{0};
@@ -469,6 +484,7 @@ int main(int argc, char** argv) {
         return;
       }
 
+      const cv::Mat frame_bgr = event.bgr.clone();
       const uint64_t frame_index = image_received.fetch_add(1, std::memory_order_relaxed);
       const uint64_t device_timestamp_ns = usToNs(event.device_timestamp_us);
       const uint64_t timestamp_ns = usToNs(event.timestamp_us);
@@ -485,7 +501,12 @@ int main(int argc, char** argv) {
       job.image_path = output_dir / filename;
       job.width = event.bgr.cols;
       job.height = event.bgr.rows;
-      job.bgr = event.bgr;
+      job.bgr = frame_bgr;
+
+      if (options.preview) {
+        std::lock_guard<std::mutex> lock(preview_mutex);
+        latest_preview_bgr = frame_bgr;
+      }
 
       {
         std::lock_guard<std::mutex> lock(image_queue_mutex);
@@ -542,28 +563,77 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, signalHandler);
 
     producer.start();
+    bool preview_enabled = options.preview;
+    bool preview_window_sized = false;
+    const std::string preview_window = "Orbbec color+IMU dataset preview";
+    if (preview_enabled) {
+      try {
+        cv::namedWindow(preview_window, cv::WINDOW_NORMAL | cv::WINDOW_KEEPRATIO);
+        cv::resizeWindow(
+            preview_window,
+            static_cast<int>(options.color_width),
+            static_cast<int>(options.color_height));
+      } catch (const cv::Exception& e) {
+        std::cerr << "Preview disabled: " << e.what() << "\n";
+        preview_enabled = false;
+      }
+    }
+
     std::cout << "orbbec_vi_dataset_logger writing " << output_dir << "\n";
     std::cout << "Image output: format=" << options.image_format
               << " writer_threads=" << options.image_writer_threads
               << " queue_size=" << options.image_queue_size << "\n";
+    if (preview_enabled) {
+      std::cout << "Preview enabled at " << options.preview_fps
+                << " FPS. Press q, Esc, or Ctrl+C to stop.\n";
+    }
     if (options.duration_sec > 0.0) {
       std::cout << "Duration limit: " << options.duration_sec << "s\n";
     } else {
-      std::cout << "Press Ctrl+C to stop.\n";
+      std::cout << "Press Ctrl+C"
+                << (preview_enabled ? " or q/Esc in the preview window" : "")
+                << " to stop.\n";
     }
 
     const auto start_time = std::chrono::steady_clock::now();
     auto last_log = start_time;
+    auto last_preview = start_time;
+    const auto preview_period = std::chrono::duration<double>(1.0 / options.preview_fps);
     uint64_t last_image_received = 0;
     uint64_t last_image_written = 0;
     uint64_t last_imu = 0;
 
     while (g_running.load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      std::this_thread::sleep_for(preview_enabled ? std::chrono::milliseconds(5)
+                                                  : std::chrono::milliseconds(50));
       const auto now = std::chrono::steady_clock::now();
       const double total_elapsed_s = std::chrono::duration<double>(now - start_time).count();
       if (options.duration_sec > 0.0 && total_elapsed_s >= options.duration_sec) {
         break;
+      }
+      if (preview_enabled && now - last_preview >= preview_period) {
+        cv::Mat frame;
+        {
+          std::lock_guard<std::mutex> lock(preview_mutex);
+          frame = latest_preview_bgr;
+        }
+        if (!frame.empty()) {
+          try {
+            if (!preview_window_sized) {
+              cv::resizeWindow(preview_window, frame.cols, frame.rows);
+              preview_window_sized = true;
+            }
+            cv::imshow(preview_window, frame);
+            const int key = cv::waitKey(1);
+            if (key == 27 || key == 'q' || key == 'Q') {
+              g_running.store(false);
+            }
+          } catch (const cv::Exception& e) {
+            std::cerr << "Preview disabled: " << e.what() << "\n";
+            preview_enabled = false;
+          }
+        }
+        last_preview = now;
       }
       if (now - last_log >= std::chrono::seconds(1)) {
         const double elapsed_s = std::chrono::duration<double>(now - last_log).count();
@@ -599,6 +669,12 @@ int main(int argc, char** argv) {
     }
 
     producer.stop();
+    if (preview_enabled) {
+      try {
+        cv::destroyWindow(preview_window);
+      } catch (const cv::Exception&) {
+      }
+    }
     image_writer_stop.store(true, std::memory_order_relaxed);
     image_queue_cv.notify_all();
     for (auto& worker : image_writers) {

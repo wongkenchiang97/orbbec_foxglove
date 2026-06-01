@@ -4,10 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## v0.1.4 - 2026-05-26
 
+### Added
+
+- Added optional 30 FPS live color preview to `orbbec_vi_dataset_logger` with `q`/Esc stop handling.
+
 ### Changed
 
 - Updated README documentation for the current calibration capture workflow, including the producer-only IMU logger, color+IMU dataset logger, and optional GTSAM preintegration drift-test targets.
-- Documented the color+IMU dataset logger command, output files, device-timestamp usage, async image-writer diagnostics, and camera-IMU capture guidance.
+- Documented the color+IMU dataset logger command, user-interrupt stop flow, preview controls, output files, device-timestamp usage, async image-writer diagnostics, and camera-IMU capture guidance.
 - Updated the documented baseline release to `v0.1.3`.
 
 ## v0.1.3 - 2026-05-22

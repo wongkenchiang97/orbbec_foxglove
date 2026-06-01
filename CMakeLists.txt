@@ -21,7 +21,7 @@ if(NOT EXISTS "${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp")
     "ORBBEC_SDK_ROOT is invalid. Expected: ${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp")
 endif()
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
 find_package(Threads REQUIRED)
 find_package(GTSAM QUIET)
 
