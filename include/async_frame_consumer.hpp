@@ -31,21 +31,32 @@ class AsyncFrameConsumer final : public IFrameConsumer {
     bool async_extrinsics = true;
     bool async_camera_calibration = true;
     bool sync_color_depth_by_device_ts = true;
+    bool prefer_latest_synced_rgbd = false;
     uint64_t color_depth_sync_tolerance_us = 2000;
   };
 
   struct Stats {
     uint64_t enqueued = 0;
+    uint64_t enqueued_color = 0;
+    uint64_t enqueued_depth = 0;
+    uint64_t enqueued_misc = 0;
     uint64_t dispatched = 0;
+    uint64_t dispatched_color = 0;
+    uint64_t dispatched_depth = 0;
+    uint64_t dispatched_misc = 0;
     uint64_t dropped = 0;
     uint64_t dropped_color = 0;
     uint64_t dropped_depth = 0;
     uint64_t dropped_misc = 0;
+    uint64_t dropped_stale_rgbd_pairs = 0;
     uint64_t callback_errors = 0;
     uint64_t queue_size = 0;
     uint64_t color_queue_size = 0;
     uint64_t depth_queue_size = 0;
     uint64_t misc_queue_size = 0;
+    uint64_t max_color_queue_size = 0;
+    uint64_t max_depth_queue_size = 0;
+    bool prefer_latest_synced_rgbd = false;
   };
 
   AsyncFrameConsumer(IFrameConsumer& downstream, Options options)
@@ -93,12 +104,32 @@ class AsyncFrameConsumer final : public IFrameConsumer {
   Stats consumeStats() {
     Stats stats;
     stats.enqueued = enqueued_.exchange(0, std::memory_order_relaxed);
+    stats.enqueued_color =
+        enqueued_color_.exchange(0, std::memory_order_relaxed);
+    stats.enqueued_depth =
+        enqueued_depth_.exchange(0, std::memory_order_relaxed);
+    stats.enqueued_misc =
+        enqueued_misc_.exchange(0, std::memory_order_relaxed);
     stats.dispatched = dispatched_.exchange(0, std::memory_order_relaxed);
+    stats.dispatched_color =
+        dispatched_color_.exchange(0, std::memory_order_relaxed);
+    stats.dispatched_depth =
+        dispatched_depth_.exchange(0, std::memory_order_relaxed);
+    stats.dispatched_misc =
+        dispatched_misc_.exchange(0, std::memory_order_relaxed);
     stats.dropped = dropped_.exchange(0, std::memory_order_relaxed);
     stats.dropped_color = dropped_color_.exchange(0, std::memory_order_relaxed);
     stats.dropped_depth = dropped_depth_.exchange(0, std::memory_order_relaxed);
     stats.dropped_misc = dropped_misc_.exchange(0, std::memory_order_relaxed);
+    stats.dropped_stale_rgbd_pairs =
+        dropped_stale_rgbd_pairs_.exchange(0, std::memory_order_relaxed);
     stats.callback_errors = callback_errors_.exchange(0, std::memory_order_relaxed);
+    stats.max_color_queue_size =
+        static_cast<uint64_t>(maxColorQueueSize());
+    stats.max_depth_queue_size =
+        static_cast<uint64_t>(maxDepthQueueSize());
+    stats.prefer_latest_synced_rgbd =
+        options_.prefer_latest_synced_rgbd;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       stats.color_queue_size = static_cast<uint64_t>(color_queue_.size());
@@ -223,6 +254,7 @@ class AsyncFrameConsumer final : public IFrameConsumer {
       }
       color_queue_.push_back(event);
       enqueued_.fetch_add(1, std::memory_order_relaxed);
+      enqueued_color_.fetch_add(1, std::memory_order_relaxed);
     }
     cv_.notify_all();
   }
@@ -248,6 +280,7 @@ class AsyncFrameConsumer final : public IFrameConsumer {
       }
       depth_queue_.push_back(event);
       enqueued_.fetch_add(1, std::memory_order_relaxed);
+      enqueued_depth_.fetch_add(1, std::memory_order_relaxed);
     }
     cv_.notify_all();
   }
@@ -273,11 +306,39 @@ class AsyncFrameConsumer final : public IFrameConsumer {
       }
       misc_queue_.push_back(std::move(event));
       enqueued_.fetch_add(1, std::memory_order_relaxed);
+      enqueued_misc_.fetch_add(1, std::memory_order_relaxed);
     }
     cv_.notify_all();
   }
 
   bool tryPopSyncedColorDepthLocked(ColorFrameEvent& color, DepthFrameEvent& depth) {
+    if (options_.prefer_latest_synced_rgbd) {
+      while (color_queue_.size() > 1 && depth_queue_.size() > 1) {
+        const uint64_t color_ts =
+            measurementTimestampUs(color_queue_.front());
+        const uint64_t depth_ts =
+            measurementTimestampUs(depth_queue_.front());
+        const uint64_t dt_us = absDiffUs(color_ts, depth_ts);
+        if (dt_us <= options_.color_depth_sync_tolerance_us) {
+          color_queue_.pop_front();
+          depth_queue_.pop_front();
+          dropped_.fetch_add(2, std::memory_order_relaxed);
+          dropped_color_.fetch_add(1, std::memory_order_relaxed);
+          dropped_depth_.fetch_add(1, std::memory_order_relaxed);
+          dropped_stale_rgbd_pairs_.fetch_add(
+              1, std::memory_order_relaxed);
+        } else if (color_ts < depth_ts) {
+          color_queue_.pop_front();
+          dropped_.fetch_add(1, std::memory_order_relaxed);
+          dropped_color_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          depth_queue_.pop_front();
+          dropped_.fetch_add(1, std::memory_order_relaxed);
+          dropped_depth_.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    }
+
     while (!color_queue_.empty() && !depth_queue_.empty()) {
       const uint64_t color_ts = measurementTimestampUs(color_queue_.front());
       const uint64_t depth_ts = measurementTimestampUs(depth_queue_.front());
@@ -408,10 +469,12 @@ class AsyncFrameConsumer final : public IFrameConsumer {
         if (have_color) {
           downstream_.onColorFrame(color_event);
           dispatched_.fetch_add(1, std::memory_order_relaxed);
+          dispatched_color_.fetch_add(1, std::memory_order_relaxed);
         }
         if (have_depth) {
           downstream_.onDepthFrame(depth_event);
           dispatched_.fetch_add(1, std::memory_order_relaxed);
+          dispatched_depth_.fetch_add(1, std::memory_order_relaxed);
         }
       } catch (...) {
         callback_errors_.fetch_add(1, std::memory_order_relaxed);
@@ -448,6 +511,7 @@ class AsyncFrameConsumer final : public IFrameConsumer {
       try {
         std::visit([this](const auto& e) { dispatchEvent(e); }, event);
         dispatched_.fetch_add(1, std::memory_order_relaxed);
+        dispatched_misc_.fetch_add(1, std::memory_order_relaxed);
       } catch (...) {
         callback_errors_.fetch_add(1, std::memory_order_relaxed);
       }
@@ -487,11 +551,18 @@ class AsyncFrameConsumer final : public IFrameConsumer {
   std::deque<FrameEvent> misc_queue_;
 
   std::atomic<uint64_t> enqueued_{0};
+  std::atomic<uint64_t> enqueued_color_{0};
+  std::atomic<uint64_t> enqueued_depth_{0};
+  std::atomic<uint64_t> enqueued_misc_{0};
   std::atomic<uint64_t> dispatched_{0};
+  std::atomic<uint64_t> dispatched_color_{0};
+  std::atomic<uint64_t> dispatched_depth_{0};
+  std::atomic<uint64_t> dispatched_misc_{0};
   std::atomic<uint64_t> dropped_{0};
   std::atomic<uint64_t> dropped_color_{0};
   std::atomic<uint64_t> dropped_depth_{0};
   std::atomic<uint64_t> dropped_misc_{0};
+  std::atomic<uint64_t> dropped_stale_rgbd_pairs_{0};
   std::atomic<uint64_t> callback_errors_{0};
 };
 

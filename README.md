@@ -8,7 +8,7 @@ C++ bridge for Orbbec cameras and Foxglove with Windows and Ubuntu build scripts
 - Uses `config/camera_config.ini` for runtime settings
 - Can also run as a producer-only app without Foxglove dependency
 
-Current baseline release: `v0.1.3` (2026-05-22).  
+Current baseline release: `v0.1.5` (2026-06-10).
 See [CHANGELOG.md](CHANGELOG.md) for updates.
 
 ## Data Flow
@@ -170,6 +170,8 @@ For RGB-D VO, enable synchronized-only framesets in config:
 - `sync_color_depth_only=1` to require each video `FrameSet` to include both color and depth.
 - This enables Orbbec SDK frame sync and strict frame aggregation.
 - `depth_enabled` must stay `1` when this is enabled.
+- Color and depth resolutions may differ. Configure supported sensor profiles;
+  otherwise startup reports that it selected a fallback profile.
 
 Run executable:
 

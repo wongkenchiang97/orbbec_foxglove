@@ -498,6 +498,14 @@ void OrbbecProducer::start() {
       auto profile_list = video_pipeline_->getStreamProfileList(OB_SENSOR_COLOR);
       auto color_profile = selectColorProfile(
           profile_list, options_.color_width, options_.color_height, options_.color_fps);
+      if (color_profile->getWidth() != options_.color_width ||
+          color_profile->getHeight() != options_.color_height ||
+          color_profile->getFps() != options_.color_fps) {
+        std::cerr << "Requested color profile "
+                  << options_.color_width << "x" << options_.color_height
+                  << " @ " << options_.color_fps
+                  << "fps is unavailable; using fallback profile.\n";
+      }
       std::cout << "Selected color profile: "
                 << color_profile->getWidth() << "x" << color_profile->getHeight()
                 << " @ " << color_profile->getFps() << "fps"
@@ -527,6 +535,14 @@ void OrbbecProducer::start() {
         auto depth_profile_list = video_pipeline_->getStreamProfileList(OB_SENSOR_DEPTH);
         auto depth_profile = selectDepthProfile(
             depth_profile_list, options_.depth_width, options_.depth_height, options_.depth_fps);
+        if (depth_profile->getWidth() != options_.depth_width ||
+            depth_profile->getHeight() != options_.depth_height ||
+            depth_profile->getFps() != options_.depth_fps) {
+          std::cerr << "Requested depth profile "
+                    << options_.depth_width << "x" << options_.depth_height
+                    << " @ " << options_.depth_fps
+                    << "fps is unavailable; using fallback profile.\n";
+        }
         std::cout << "Selected depth profile: "
                   << depth_profile->getWidth() << "x" << depth_profile->getHeight()
                   << " @ " << depth_profile->getFps() << "fps"

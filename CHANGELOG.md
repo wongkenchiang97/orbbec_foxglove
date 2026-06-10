@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.1.5 - 2026-06-10
+
+### Added
+
+- Added optional latest-frame preference for synchronized RGB-D dispatch,
+  dropping stale matched pairs to bound downstream processing latency.
+- Added per-stream enqueue and dispatch counters for color, depth, and
+  miscellaneous events.
+- Added stale RGB-D pair counts, active queue limits, and latest-frame policy
+  state to async consumer diagnostics.
+- Added startup warnings when requested color or depth profiles are unavailable
+  and the SDK selects fallback profiles.
+
+### Changed
+
+- Updated the default camera configuration to use 1280x720 color and 848x480
+  depth at 30 FPS.
+- Documented that synchronized color and depth streams may use different
+  supported resolutions.
+
 ## v0.1.4 - 2026-05-26
 
 ### Added
