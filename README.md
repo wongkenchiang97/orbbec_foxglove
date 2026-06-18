@@ -8,7 +8,7 @@ C++ bridge for Orbbec cameras and Foxglove with Windows and Ubuntu build scripts
 - Uses `config/camera_config.ini` for runtime settings
 - Can also run as a producer-only app without Foxglove dependency
 
-Current baseline release: `v0.1.5` (2026-06-10).
+Current baseline release: `v0.1.6` (2026-06-11).
 See [CHANGELOG.md](CHANGELOG.md) for updates.
 
 ## Data Flow
@@ -155,6 +155,26 @@ For a VO-focused external project that only needs producer/dispatcher interfaces
 - set `ORBBEC_BUILD_FOXGLOVE_SINK=OFF`
 - set `ORBBEC_BUILD_BRIDGE_APP=OFF`
 - link your app against `orbbec::core` via `add_subdirectory(...)` / submodule
+
+## Frame Timing Contract
+
+`ColorFrameEvent` and `DepthFrameEvent` include a `FrameTiming` value:
+
+- `driver_receive_steady_us`: callback-entry time before image decoding.
+- `capture_steady_us`: capture time mapped into the same steady-clock domain.
+- `capture_steady_valid`: whether the mapped capture time is usable.
+- `timestamp_source`: Orbbec global, system, mapped device, or unknown.
+- `clock_mapping_uncertainty_us`: observed timing uncertainty.
+
+Global and system timestamps that are plausible epoch timestamps are converted
+directly into steady time. Otherwise, independent rolling affine mappers for
+color and depth convert device timestamps to steady time. The device mapping
+warms up over at least 20 samples and 0.5 seconds of device time.
+
+The device-clock offset uses the lowest observed callback-delay envelope.
+This preserves relative latency and age measurements, but it cannot identify
+an unknown fixed sensor or USB transport delay. Consumers must treat timing as
+unavailable while `capture_steady_valid` is false.
 
 ## Run
 

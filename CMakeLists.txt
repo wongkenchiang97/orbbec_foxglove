@@ -95,6 +95,7 @@ endfunction()
 
 # Reusable core library: producer + shared interfaces.
 add_library(orbbec_core STATIC
+  src/frame_timing.cpp
   src/orbbec_producer.cpp
 )
 add_library(orbbec::core ALIAS orbbec_core)
@@ -114,6 +115,23 @@ target_link_libraries(orbbec_core
 )
 
 orbbec_apply_common_cxx_options(orbbec_core)
+
+option(ORBBEC_BUILD_TESTING "Build orbbec_foxglove tests" OFF)
+if(ORBBEC_BUILD_TESTING)
+  include(CTest)
+  if(BUILD_TESTING)
+    add_executable(orbbec_frame_timing_test
+      tests/frame_timing_test.cpp
+    )
+    target_link_libraries(orbbec_frame_timing_test PRIVATE
+      orbbec::core
+    )
+    add_test(
+      NAME orbbec_frame_timing_test
+      COMMAND orbbec_frame_timing_test
+    )
+  endif()
+endif()
 
 if(ORBBEC_BUILD_FOXGLOVE_SINK)
   set(FOXGLOVE_CPP_INCLUDE_DIR "")

@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.1.6 - 2026-06-11
+
+### Added
+
+- Added callback-entry and mapped capture steady-clock timing to color and
+  depth frame events.
+- Added a rolling affine device-clock mapper with validity and uncertainty
+  reporting for streams without plausible epoch timestamps.
+- Added a deterministic device-clock mapping test target.
+
+### Changed
+
+- Changed synchronized color and depth timing to use independent clock mappers
+  so small cross-stream timestamp ordering differences cannot reset mapping
+  state.
+
 ## v0.1.5 - 2026-06-10
 
 ### Added

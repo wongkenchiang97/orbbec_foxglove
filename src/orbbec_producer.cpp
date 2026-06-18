@@ -90,6 +90,13 @@ uint64_t nowEpochUs() {
           .count());
 }
 
+uint64_t nowSteadyUs() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+}
+
 uint64_t bestTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
   if (!frame) {
     return 0;
@@ -103,6 +110,76 @@ uint64_t bestTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
     return system;
   }
   return frame->getTimeStampUs();
+}
+
+bridge::FrameTiming makeFrameTiming(
+    const std::shared_ptr<ob::Frame>& frame,
+    uint64_t receive_steady_us,
+    uint64_t receive_epoch_us,
+    bridge::DeviceClockMapper& device_clock_mapper) {
+  bridge::FrameTiming timing;
+  timing.driver_receive_steady_us = receive_steady_us;
+  if (!frame) {
+    return timing;
+  }
+
+  const uint64_t device_us = frame->getTimeStampUs();
+  const bridge::DeviceClockMapping device_mapping =
+      device_clock_mapper.observeAndMap(
+          device_us, receive_steady_us);
+
+  constexpr uint64_t kMaximumEpochDeltaUs = 10000000;
+  constexpr uint64_t kMaximumFutureUs = 500000;
+  const auto apply_epoch_timestamp =
+      [&](uint64_t capture_epoch_us,
+          bridge::CaptureTimestampSource source) {
+    const bool epoch_plausible =
+        capture_epoch_us != 0 &&
+        capture_epoch_us <= receive_epoch_us + kMaximumFutureUs &&
+        receive_epoch_us <= capture_epoch_us + kMaximumEpochDeltaUs;
+    if (!epoch_plausible) {
+      return false;
+    }
+    const int64_t epoch_delta_us =
+        static_cast<int64_t>(capture_epoch_us) -
+        static_cast<int64_t>(receive_epoch_us);
+    const int64_t capture_steady_us =
+        static_cast<int64_t>(receive_steady_us) + epoch_delta_us;
+    if (capture_steady_us > 0 &&
+        capture_steady_us <=
+            static_cast<int64_t>(receive_steady_us) +
+                static_cast<int64_t>(kMaximumFutureUs)) {
+      timing.capture_steady_us =
+          static_cast<uint64_t>(std::min<int64_t>(
+              capture_steady_us,
+              static_cast<int64_t>(receive_steady_us)));
+      timing.capture_steady_valid = true;
+      timing.timestamp_source = source;
+      timing.clock_mapping_uncertainty_us = 1000.0;
+      return true;
+    }
+    return false;
+  };
+
+  if (apply_epoch_timestamp(
+          frame->getGlobalTimeStampUs(),
+          bridge::CaptureTimestampSource::Global) ||
+      apply_epoch_timestamp(
+          frame->getSystemTimeStampUs(),
+          bridge::CaptureTimestampSource::System)) {
+    return timing;
+  }
+
+  if (device_mapping.valid) {
+    timing.capture_steady_us =
+        device_mapping.capture_steady_us;
+    timing.capture_steady_valid = true;
+    timing.timestamp_source =
+        bridge::CaptureTimestampSource::Device;
+    timing.clock_mapping_uncertainty_us =
+        device_mapping.uncertainty_us;
+  }
+  return timing;
 }
 
 uint64_t deviceTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
@@ -579,6 +656,8 @@ void OrbbecProducer::start() {
           "sync_color_depth_only requires both color and depth streams to be enabled");
     }
 
+    color_clock_mapper_.reset();
+    depth_clock_mapper_.reset();
     video_pipeline_->start(video_config, [this](std::shared_ptr<ob::FrameSet> frame_set) {
       onVideoFrameset(frame_set);
     });
@@ -857,6 +936,8 @@ void OrbbecProducer::stop() {
   color_enabled_ = false;
   depth_enabled_ = false;
   last_imu_device_timestamp_us_ = 0;
+  color_clock_mapper_.reset();
+  depth_clock_mapper_.reset();
   has_accel_intrinsic_ = false;
   accel_intrinsic_ = OBAccelIntrinsic{};
   has_gyro_intrinsic_ = false;
@@ -870,6 +951,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
     return;
   }
 
+  const uint64_t receive_steady_us = nowSteadyUs();
+  const uint64_t receive_epoch_us = nowEpochUs();
   try {
     if (options_.sync_color_depth_only && color_enabled_ && depth_enabled_) {
       auto color_frame = extractColorVideoFrame(frame_set);
@@ -906,12 +989,18 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
           options_.source_id,
           bestTimestampUs(color_frame),
           synced_device_ts_us,
-          bgr_opt.value()};
+          bgr_opt.value(),
+          makeFrameTiming(
+              color_frame, receive_steady_us, receive_epoch_us,
+              color_clock_mapper_)};
       const DepthFrameEvent depth_event{
           options_.source_id,
           bestTimestampUs(depth_frame),
           synced_device_ts_us,
-          depth_opt.value()};
+          depth_opt.value(),
+          makeFrameTiming(
+              depth_frame, receive_steady_us, receive_epoch_us,
+              depth_clock_mapper_)};
 
       IFrameConsumer* consumer = nullptr;
       ColorCallback color_callback;
@@ -947,7 +1036,10 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
               options_.source_id,
               bestTimestampUs(color_frame),
               deviceTimestampUs(color_frame),
-              bgr_opt.value()};
+              bgr_opt.value(),
+              makeFrameTiming(
+                  color_frame, receive_steady_us, receive_epoch_us,
+                  color_clock_mapper_)};
           IFrameConsumer* consumer = nullptr;
           ColorCallback callback;
           {
@@ -976,7 +1068,10 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
               options_.source_id,
               bestTimestampUs(depth_frame),
               deviceTimestampUs(depth_frame),
-              depth_opt.value()};
+              depth_opt.value(),
+              makeFrameTiming(
+                  depth_frame, receive_steady_us, receive_epoch_us,
+                  depth_clock_mapper_)};
           IFrameConsumer* consumer = nullptr;
           DepthCallback callback;
           {

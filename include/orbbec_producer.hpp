@@ -12,6 +12,8 @@
 
 #include <libobsensor/ObSensor.hpp>
 
+#include "frame_timing.hpp"
+
 namespace bridge {
 
 struct ColorFrameEvent {
@@ -19,6 +21,7 @@ struct ColorFrameEvent {
   uint64_t timestamp_us = 0;
   uint64_t device_timestamp_us = 0;
   cv::Mat bgr;
+  FrameTiming timing;
 };
 
 struct DepthFrameEvent {
@@ -26,6 +29,7 @@ struct DepthFrameEvent {
   uint64_t timestamp_us = 0;
   uint64_t device_timestamp_us = 0;
   cv::Mat depth_mono16;
+  FrameTiming timing;
 };
 
 struct ImuSampleEvent {
@@ -168,6 +172,8 @@ class OrbbecProducer final {
   OBAccelIntrinsic accel_intrinsic_{};
   bool has_gyro_intrinsic_ = false;
   OBGyroIntrinsic gyro_intrinsic_{};
+  DeviceClockMapper color_clock_mapper_;
+  DeviceClockMapper depth_clock_mapper_;
 };
 
 }  // namespace bridge
