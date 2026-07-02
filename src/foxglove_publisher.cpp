@@ -172,9 +172,9 @@ std::string makeImuJson(
     bool dt_valid,
     const std::string& frame_id,
     bool has_accel,
-    const OBAccelValue& accel,
+    const bridge::ImuVector3& accel,
     bool has_gyro,
-    const OBGyroValue& gyro) {
+    const bridge::ImuVector3& gyro) {
   std::ostringstream out;
   out.setf(std::ios::fixed);
   out.precision(9);
@@ -198,7 +198,7 @@ std::string makeImuJson(
 }
 
 std::string makeAccelIntrinsicJson(
-    uint32_t source_id, const std::string& frame_id, const OBAccelIntrinsic& intrinsic) {
+    uint32_t source_id, const std::string& frame_id, const bridge::ImuAccelIntrinsic& intrinsic) {
   std::ostringstream out;
   out.setf(std::ios::fixed);
   out.precision(9);
@@ -222,7 +222,7 @@ std::string makeAccelIntrinsicJson(
 }
 
 std::string makeGyroIntrinsicJson(
-    uint32_t source_id, const std::string& frame_id, const OBGyroIntrinsic& intrinsic) {
+    uint32_t source_id, const std::string& frame_id, const bridge::ImuGyroIntrinsic& intrinsic) {
   std::ostringstream out;
   out.setf(std::ios::fixed);
   out.precision(9);
@@ -247,7 +247,7 @@ std::string makeDiagnosticsJson(
     uint32_t source_id,
     double timestamp_sec,
     double window_sec,
-    const bridge::OrbbecProducer::Stats& producer_stats,
+    const bridge::ProducerStats& producer_stats,
     const bridge::FoxglovePublisher::Stats& publisher_stats) {
   auto hz = [window_sec](uint64_t count) {
     return window_sec > 0.0 ? static_cast<double>(count) / window_sec : 0.0;
@@ -295,16 +295,18 @@ std::string makeDiagnosticsJson(
   return out.str();
 }
 
-foxglove::schemas::Vector3 translationFromExtrinsic(const OBExtrinsic& extrinsic) {
+foxglove::schemas::Vector3 translationFromExtrinsic(const bridge::ExtrinsicTransform& extrinsic) {
   foxglove::schemas::Vector3 translation;
-  // Orbbec extrinsics are in millimeters; Foxglove transforms use meters.
-  translation.x = static_cast<double>(extrinsic.trans[0]) * 1e-3;
-  translation.y = static_cast<double>(extrinsic.trans[1]) * 1e-3;
-  translation.z = static_cast<double>(extrinsic.trans[2]) * 1e-3;
+  translation.x = static_cast<double>(extrinsic.trans[0]) *
+                  extrinsic.translation_scale_to_meters;
+  translation.y = static_cast<double>(extrinsic.trans[1]) *
+                  extrinsic.translation_scale_to_meters;
+  translation.z = static_cast<double>(extrinsic.trans[2]) *
+                  extrinsic.translation_scale_to_meters;
   return translation;
 }
 
-foxglove::schemas::Quaternion quaternionFromExtrinsic(const OBExtrinsic& extrinsic) {
+foxglove::schemas::Quaternion quaternionFromExtrinsic(const bridge::ExtrinsicTransform& extrinsic) {
   const double m00 = static_cast<double>(extrinsic.rot[0]);
   const double m01 = static_cast<double>(extrinsic.rot[1]);
   const double m02 = static_cast<double>(extrinsic.rot[2]);
@@ -358,27 +360,27 @@ foxglove::schemas::Quaternion quaternionFromExtrinsic(const OBExtrinsic& extrins
   return q;
 }
 
-std::string distortionModelName(OBCameraDistortionModel model) {
+std::string distortionModelName(bridge::CameraDistortionModel model) {
   switch (model) {
-    case OB_DISTORTION_KANNALA_BRANDT4:
+    case bridge::CameraDistortionModel::KannalaBrandt4:
       return "kannala_brandt";
-    case OB_DISTORTION_BROWN_CONRADY_K6:
+    case bridge::CameraDistortionModel::BrownConradyK6:
       return "rational_polynomial";
-    case OB_DISTORTION_NONE:
+    case bridge::CameraDistortionModel::None:
       return "plumb_bob";
-    case OB_DISTORTION_MODIFIED_BROWN_CONRADY:
-    case OB_DISTORTION_INVERSE_BROWN_CONRADY:
-    case OB_DISTORTION_BROWN_CONRADY:
+    case bridge::CameraDistortionModel::ModifiedBrownConrady:
+    case bridge::CameraDistortionModel::InverseBrownConrady:
+    case bridge::CameraDistortionModel::BrownConrady:
     default:
       return "plumb_bob";
   }
 }
 
-std::vector<double> distortionCoefficients(const OBCameraDistortion& distortion) {
+std::vector<double> distortionCoefficients(const bridge::CameraDistortion& distortion) {
   switch (distortion.model) {
-    case OB_DISTORTION_KANNALA_BRANDT4:
+    case bridge::CameraDistortionModel::KannalaBrandt4:
       return {distortion.k1, distortion.k2, distortion.k3, distortion.k4};
-    case OB_DISTORTION_BROWN_CONRADY_K6:
+    case bridge::CameraDistortionModel::BrownConradyK6:
       return {
           distortion.k1,
           distortion.k2,
@@ -388,11 +390,11 @@ std::vector<double> distortionCoefficients(const OBCameraDistortion& distortion)
           distortion.k4,
           distortion.k5,
           distortion.k6};
-    case OB_DISTORTION_NONE:
+    case bridge::CameraDistortionModel::None:
       return {};
-    case OB_DISTORTION_MODIFIED_BROWN_CONRADY:
-    case OB_DISTORTION_INVERSE_BROWN_CONRADY:
-    case OB_DISTORTION_BROWN_CONRADY:
+    case bridge::CameraDistortionModel::ModifiedBrownConrady:
+    case bridge::CameraDistortionModel::InverseBrownConrady:
+    case bridge::CameraDistortionModel::BrownConrady:
     default:
       return {distortion.k1, distortion.k2, distortion.p1, distortion.p2, distortion.k3};
   }
@@ -401,8 +403,8 @@ std::vector<double> distortionCoefficients(const OBCameraDistortion& distortion)
 foxglove::schemas::CameraCalibration makeCameraCalibration(
     uint64_t ts_us,
     const std::string& frame_id,
-    const OBCameraIntrinsic& intrinsic,
-    const OBCameraDistortion& distortion) {
+    const bridge::CameraIntrinsic& intrinsic,
+    const bridge::CameraDistortion& distortion) {
   foxglove::schemas::CameraCalibration out;
   out.timestamp = toTimestamp(ts_us);
   out.frame_id = frame_id;
@@ -1112,7 +1114,7 @@ void FoxglovePublisher::publishCameraCalibration(const CameraCalibrationEvent& e
 void FoxglovePublisher::publishDiagnostics(
     uint64_t timestamp_us,
     double window_sec,
-    const OrbbecProducer::Stats& producer_stats,
+    const ProducerStats& producer_stats,
     const Stats& publisher_stats) {
   if (!diagnostics_channel_.has_value()) {
     return;

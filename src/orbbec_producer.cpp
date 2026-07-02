@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -110,6 +111,97 @@ uint64_t bestTimestampUs(const std::shared_ptr<ob::Frame>& frame) {
     return system;
   }
   return frame->getTimeStampUs();
+}
+
+bridge::ImuVector3 toBridgeVector(const OBAccelValue& value) {
+  return {value.x, value.y, value.z};
+}
+
+template <typename SourceT, typename DestT, size_t N>
+void copyArray(const SourceT (&src)[N], DestT (&dst)[N]) {
+  for (size_t i = 0; i < N; ++i) {
+    dst[i] = static_cast<DestT>(src[i]);
+  }
+}
+
+bridge::ImuAccelIntrinsic toBridgeAccelIntrinsic(
+    const OBAccelIntrinsic& intrinsic) {
+  bridge::ImuAccelIntrinsic out;
+  out.noiseDensity = intrinsic.noiseDensity;
+  out.randomWalk = intrinsic.randomWalk;
+  out.referenceTemp = intrinsic.referenceTemp;
+  copyArray(intrinsic.bias, out.bias);
+  copyArray(intrinsic.gravity, out.gravity);
+  copyArray(intrinsic.scaleMisalignment, out.scaleMisalignment);
+  copyArray(intrinsic.tempSlope, out.tempSlope);
+  return out;
+}
+
+bridge::ImuGyroIntrinsic toBridgeGyroIntrinsic(
+    const OBGyroIntrinsic& intrinsic) {
+  bridge::ImuGyroIntrinsic out;
+  out.noiseDensity = intrinsic.noiseDensity;
+  out.randomWalk = intrinsic.randomWalk;
+  out.referenceTemp = intrinsic.referenceTemp;
+  copyArray(intrinsic.bias, out.bias);
+  copyArray(intrinsic.scaleMisalignment, out.scaleMisalignment);
+  copyArray(intrinsic.tempSlope, out.tempSlope);
+  return out;
+}
+
+bridge::CameraDistortionModel toBridgeDistortionModel(
+    OBCameraDistortionModel model) {
+  switch (model) {
+    case OB_DISTORTION_MODIFIED_BROWN_CONRADY:
+      return bridge::CameraDistortionModel::ModifiedBrownConrady;
+    case OB_DISTORTION_INVERSE_BROWN_CONRADY:
+      return bridge::CameraDistortionModel::InverseBrownConrady;
+    case OB_DISTORTION_BROWN_CONRADY:
+      return bridge::CameraDistortionModel::BrownConrady;
+    case OB_DISTORTION_BROWN_CONRADY_K6:
+      return bridge::CameraDistortionModel::BrownConradyK6;
+    case OB_DISTORTION_KANNALA_BRANDT4:
+      return bridge::CameraDistortionModel::KannalaBrandt4;
+    case OB_DISTORTION_NONE:
+    default:
+      return bridge::CameraDistortionModel::None;
+  }
+}
+
+bridge::CameraIntrinsic toBridgeCameraIntrinsic(
+    const OBCameraIntrinsic& intrinsic) {
+  bridge::CameraIntrinsic out;
+  out.width = intrinsic.width;
+  out.height = intrinsic.height;
+  out.fx = intrinsic.fx;
+  out.fy = intrinsic.fy;
+  out.cx = intrinsic.cx;
+  out.cy = intrinsic.cy;
+  return out;
+}
+
+bridge::CameraDistortion toBridgeCameraDistortion(
+    const OBCameraDistortion& distortion) {
+  bridge::CameraDistortion out;
+  out.model = toBridgeDistortionModel(distortion.model);
+  out.k1 = distortion.k1;
+  out.k2 = distortion.k2;
+  out.k3 = distortion.k3;
+  out.k4 = distortion.k4;
+  out.k5 = distortion.k5;
+  out.k6 = distortion.k6;
+  out.p1 = distortion.p1;
+  out.p2 = distortion.p2;
+  return out;
+}
+
+bridge::ExtrinsicTransform toBridgeExtrinsic(
+    const OBExtrinsic& extrinsic) {
+  bridge::ExtrinsicTransform out;
+  std::copy(std::begin(extrinsic.rot), std::end(extrinsic.rot), std::begin(out.rot));
+  std::copy(std::begin(extrinsic.trans), std::end(extrinsic.trans), std::begin(out.trans));
+  out.translation_scale_to_meters = 1e-3;
+  return out;
 }
 
 bridge::FrameTiming makeFrameTiming(
@@ -676,9 +768,9 @@ void OrbbecProducer::start() {
     last_imu_device_timestamp_us_ = 0;
     imu_dt_reset_threshold_us_ = 500000;
     has_accel_intrinsic_ = false;
-    accel_intrinsic_ = OBAccelIntrinsic{};
+    accel_intrinsic_ = bridge::ImuAccelIntrinsic{};
     has_gyro_intrinsic_ = false;
-    gyro_intrinsic_ = OBGyroIntrinsic{};
+    gyro_intrinsic_ = bridge::ImuGyroIntrinsic{};
 
     OBAccelSampleRate accel_rate = OB_ACCEL_SAMPLE_RATE_ANY;
     OBGyroSampleRate gyro_rate = OB_GYRO_SAMPLE_RATE_ANY;
@@ -757,7 +849,7 @@ void OrbbecProducer::start() {
         }
 
         if (accel_profile) {
-          accel_intrinsic_ = accel_profile->getIntrinsic();
+          accel_intrinsic_ = toBridgeAccelIntrinsic(accel_profile->getIntrinsic());
           has_accel_intrinsic_ = true;
           std::cout << "Accel intrinsic loaded from stream profile.\n";
         } else {
@@ -793,7 +885,7 @@ void OrbbecProducer::start() {
         }
 
         if (gyro_profile) {
-          gyro_intrinsic_ = gyro_profile->getIntrinsic();
+          gyro_intrinsic_ = toBridgeGyroIntrinsic(gyro_profile->getIntrinsic());
           has_gyro_intrinsic_ = true;
           std::cout << "Gyro intrinsic loaded from stream profile.\n";
         } else {
@@ -817,8 +909,10 @@ void OrbbecProducer::start() {
     calibration_event.timestamp_us = nowEpochUs();
     if (selected_color_profile) {
       try {
-        calibration_event.color_intrinsic = selected_color_profile->getIntrinsic();
-        calibration_event.color_distortion = selected_color_profile->getDistortion();
+        calibration_event.color_intrinsic =
+            toBridgeCameraIntrinsic(selected_color_profile->getIntrinsic());
+        calibration_event.color_distortion =
+            toBridgeCameraDistortion(selected_color_profile->getDistortion());
         calibration_event.has_color = true;
       } catch (const std::exception& e) {
         std::cerr << "Color camera intrinsic/distortion unavailable: " << e.what() << "\n";
@@ -826,8 +920,10 @@ void OrbbecProducer::start() {
     }
     if (selected_depth_profile) {
       try {
-        calibration_event.depth_intrinsic = selected_depth_profile->getIntrinsic();
-        calibration_event.depth_distortion = selected_depth_profile->getDistortion();
+        calibration_event.depth_intrinsic =
+            toBridgeCameraIntrinsic(selected_depth_profile->getIntrinsic());
+        calibration_event.depth_distortion =
+            toBridgeCameraDistortion(selected_depth_profile->getDistortion());
         calibration_event.has_depth = true;
       } catch (const std::exception& e) {
         std::cerr << "Depth camera intrinsic/distortion unavailable: " << e.what() << "\n";
@@ -859,7 +955,8 @@ void OrbbecProducer::start() {
         ExtrinsicTransformEvent transform;
         transform.parent_frame_id = options_.color_frame_id;
         transform.child_frame_id = options_.depth_frame_id;
-        transform.extrinsic = selected_depth_profile->getExtrinsicTo(selected_color_profile);
+        transform.extrinsic =
+            toBridgeExtrinsic(selected_depth_profile->getExtrinsicTo(selected_color_profile));
         extrinsics_event.transforms.push_back(transform);
 
         IFrameConsumer* consumer = nullptr;
@@ -939,9 +1036,9 @@ void OrbbecProducer::stop() {
   color_clock_mapper_.reset();
   depth_clock_mapper_.reset();
   has_accel_intrinsic_ = false;
-  accel_intrinsic_ = OBAccelIntrinsic{};
+  accel_intrinsic_ = bridge::ImuAccelIntrinsic{};
   has_gyro_intrinsic_ = false;
-  gyro_intrinsic_ = OBGyroIntrinsic{};
+  gyro_intrinsic_ = bridge::ImuGyroIntrinsic{};
   imu_pipeline_.reset();
   video_pipeline_.reset();
 }
@@ -1111,7 +1208,7 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
     if (accel_raw) {
       auto accel_frame = accel_raw->as<ob::AccelFrame>();
       if (accel_frame) {
-        event.accel = accel_frame->getValue();
+        event.accel = toBridgeVector(accel_frame->getValue());
         event.timestamp_us = std::max(event.timestamp_us, bestTimestampUs(accel_frame));
         device_timestamp_us = std::max(device_timestamp_us, deviceTimestampUs(accel_frame));
         event.has_accel = true;
@@ -1123,7 +1220,7 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
     if (gyro_raw) {
       auto gyro_frame = gyro_raw->as<ob::GyroFrame>();
       if (gyro_frame) {
-        event.gyro = gyro_frame->getValue();
+        event.gyro = toBridgeVector(gyro_frame->getValue());
         event.timestamp_us = std::max(event.timestamp_us, bestTimestampUs(gyro_frame));
         device_timestamp_us = std::max(device_timestamp_us, deviceTimestampUs(gyro_frame));
         event.has_gyro = true;

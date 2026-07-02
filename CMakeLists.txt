@@ -15,6 +15,9 @@ endif()
 
 set(ORBBEC_SDK_ROOT "" CACHE PATH "Path to Orbbec SDK root (must contain include/libobsensor and lib)")
 set(FOXGLOVE_SDK_ROOT "" CACHE PATH "Path to Foxglove C++ SDK root (must contain include, src, lib)")
+set(CAMERA_BRIDGE_CORE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../camera_bridge_core"
+    CACHE PATH "Path to local camera_bridge_core project")
 
 if(NOT EXISTS "${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp")
   message(FATAL_ERROR
@@ -24,6 +27,16 @@ endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
 find_package(Threads REQUIRED)
 find_package(GTSAM QUIET)
+
+if(NOT TARGET camera_bridge::core)
+  if(NOT EXISTS "${CAMERA_BRIDGE_CORE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+      "CAMERA_BRIDGE_CORE_DIR is invalid. Expected ${CAMERA_BRIDGE_CORE_DIR}/CMakeLists.txt")
+  endif()
+  add_subdirectory(
+    "${CAMERA_BRIDGE_CORE_DIR}"
+    "${CMAKE_BINARY_DIR}/camera_bridge_core")
+endif()
 
 find_library(ORBBEC_SDK_LIBRARY
   NAMES OrbbecSDK libOrbbecSDK
@@ -95,7 +108,6 @@ endfunction()
 
 # Reusable core library: producer + shared interfaces.
 add_library(orbbec_core STATIC
-  src/frame_timing.cpp
   src/orbbec_producer.cpp
 )
 add_library(orbbec::core ALIAS orbbec_core)
@@ -109,6 +121,7 @@ target_include_directories(orbbec_core
 
 target_link_libraries(orbbec_core
   PUBLIC
+    camera_bridge::core
     ${ORBBEC_SDK_LIBRARY}
     ${OpenCV_LIBS}
     Threads::Threads
@@ -245,7 +258,7 @@ if(ORBBEC_BUILD_FOXGLOVE_SINK)
 
   target_link_libraries(orbbec_foxglove_sink
     PUBLIC
-      orbbec::core
+      camera_bridge::core
       orbbec::foxglove_cpp
       ${FOXGLOVE_C_LIBRARY}
   )

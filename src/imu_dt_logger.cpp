@@ -160,6 +160,13 @@ bool applyOptionKeyValue(
     }
     return true;
   }
+  if (key == "camera_provider") {
+    if (normalizeKey(value) != "orbbec") {
+      err = "Invalid camera_provider for orbbec_imu_dt_logger: " + value;
+      return false;
+    }
+    return true;
+  }
   if (key == "color_width") {
     if (!parseUint32(value, options.color_width)) {
       err = "Invalid color_width value: " + value;

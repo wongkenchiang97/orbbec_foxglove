@@ -13,7 +13,7 @@
 #include <foxglove/schemas.hpp>
 #include <foxglove/server.hpp>
 
-#include "orbbec_producer.hpp"
+#include "camera_bridge_core/frame_events.hpp"
 
 namespace bridge {
 
@@ -75,7 +75,7 @@ class FoxglovePublisher final : public IFrameConsumer {
   void publishDiagnostics(
       uint64_t timestamp_us,
       double window_sec,
-      const OrbbecProducer::Stats& producer_stats,
+      const ProducerStats& producer_stats,
       const Stats& publisher_stats);
 
   [[nodiscard]] Stats consumeStats();

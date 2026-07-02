@@ -12,74 +12,10 @@
 
 #include <libobsensor/ObSensor.hpp>
 
-#include "frame_timing.hpp"
+#include "camera_bridge_core/frame_events.hpp"
+#include "camera_bridge_core/frame_timing.hpp"
 
 namespace bridge {
-
-struct ColorFrameEvent {
-  uint32_t source_id = 0;
-  uint64_t timestamp_us = 0;
-  uint64_t device_timestamp_us = 0;
-  cv::Mat bgr;
-  FrameTiming timing;
-};
-
-struct DepthFrameEvent {
-  uint32_t source_id = 0;
-  uint64_t timestamp_us = 0;
-  uint64_t device_timestamp_us = 0;
-  cv::Mat depth_mono16;
-  FrameTiming timing;
-};
-
-struct ImuSampleEvent {
-  uint32_t source_id = 0;
-  uint64_t timestamp_us = 0;
-  uint64_t device_timestamp_us = 0;
-  double dt_sec = 0.0;
-  bool dt_valid = false;
-  bool has_accel = false;
-  OBAccelValue accel{0.0f, 0.0f, 0.0f};
-  bool has_gyro = false;
-  OBGyroValue gyro{0.0f, 0.0f, 0.0f};
-  bool has_accel_intrinsic = false;
-  OBAccelIntrinsic accel_intrinsic{};
-  bool has_gyro_intrinsic = false;
-  OBGyroIntrinsic gyro_intrinsic{};
-};
-
-struct ExtrinsicTransformEvent {
-  std::string parent_frame_id;
-  std::string child_frame_id;
-  OBExtrinsic extrinsic{};
-};
-
-struct ExtrinsicsEvent {
-  uint32_t source_id = 0;
-  uint64_t timestamp_us = 0;
-  std::vector<ExtrinsicTransformEvent> transforms;
-};
-
-struct CameraCalibrationEvent {
-  uint32_t source_id = 0;
-  uint64_t timestamp_us = 0;
-  bool has_color = false;
-  OBCameraIntrinsic color_intrinsic{};
-  OBCameraDistortion color_distortion{};
-  bool has_depth = false;
-  OBCameraIntrinsic depth_intrinsic{};
-  OBCameraDistortion depth_distortion{};
-};
-
-class IFrameConsumer {
- public:
-  virtual ~IFrameConsumer() = default;
-  virtual void onColorFrame(const ColorFrameEvent& event) = 0;
-  virtual void onDepthFrame(const DepthFrameEvent& event) = 0;
-  virtual void onImuSample(const ImuSampleEvent& event) = 0;
-  virtual void onExtrinsics(const ExtrinsicsEvent& event) = 0;
-  virtual void onCameraCalibration(const CameraCalibrationEvent& event) = 0;
-};
 
 class OrbbecProducer final {
  public:
@@ -100,15 +36,7 @@ class OrbbecProducer final {
     std::string extensions_dir;
   };
 
-  struct Stats {
-    uint64_t color_frames_received = 0;
-    uint64_t color_frames_decoded = 0;
-    uint64_t depth_frames_received = 0;
-    uint64_t depth_frames_decoded = 0;
-    uint64_t imu_framesets_received = 0;
-    uint64_t imu_accel_samples = 0;
-    uint64_t imu_gyro_samples = 0;
-  };
+  using Stats = ProducerStats;
 
   using ColorCallback = std::function<void(const ColorFrameEvent&)>;
   using DepthCallback = std::function<void(const DepthFrameEvent&)>;
@@ -169,9 +97,9 @@ class OrbbecProducer final {
   uint64_t last_imu_device_timestamp_us_ = 0;
   uint64_t imu_dt_reset_threshold_us_ = 500000;
   bool has_accel_intrinsic_ = false;
-  OBAccelIntrinsic accel_intrinsic_{};
+  ImuAccelIntrinsic accel_intrinsic_{};
   bool has_gyro_intrinsic_ = false;
-  OBGyroIntrinsic gyro_intrinsic_{};
+  ImuGyroIntrinsic gyro_intrinsic_{};
   DeviceClockMapper color_clock_mapper_;
   DeviceClockMapper depth_clock_mapper_;
 };

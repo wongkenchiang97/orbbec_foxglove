@@ -280,19 +280,19 @@ std::vector<int> imageWriteParams(const Options& options) {
   return {cv::IMWRITE_JPEG_QUALITY, static_cast<int>(options.jpeg_quality)};
 }
 
-std::string distortionModelName(OBCameraDistortionModel model) {
+std::string distortionModelName(bridge::CameraDistortionModel model) {
   switch (model) {
-    case OB_DISTORTION_NONE:
+    case bridge::CameraDistortionModel::None:
       return "none";
-    case OB_DISTORTION_MODIFIED_BROWN_CONRADY:
+    case bridge::CameraDistortionModel::ModifiedBrownConrady:
       return "modified_brown_conrady";
-    case OB_DISTORTION_INVERSE_BROWN_CONRADY:
+    case bridge::CameraDistortionModel::InverseBrownConrady:
       return "inverse_brown_conrady";
-    case OB_DISTORTION_BROWN_CONRADY:
+    case bridge::CameraDistortionModel::BrownConrady:
       return "brown_conrady";
-    case OB_DISTORTION_BROWN_CONRADY_K6:
+    case bridge::CameraDistortionModel::BrownConradyK6:
       return "brown_conrady_k6";
-    case OB_DISTORTION_KANNALA_BRANDT4:
+    case bridge::CameraDistortionModel::KannalaBrandt4:
       return "kannala_brandt4";
     default:
       return "unknown";

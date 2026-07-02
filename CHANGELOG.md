@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.1.7 - 2026-07-02
+
+### Added
+
+- Added `camera_provider=orbbec` configuration support and validation for
+  Orbbec bridge, producer, IMU dt logger, and VI dataset logger entry points.
+
+### Changed
+
+- Moved shared frame events, frame timing, async dispatch, dispatcher, and
+  producer diagnostics contracts to the new `camera_bridge_core` target.
+- Changed `OrbbecProducer` to adapt Orbbec SDK IMU, calibration, and extrinsic
+  types into neutral camera bridge events before dispatch.
+- Changed `FoxglovePublisher` to consume neutral camera bridge events and
+  producer stats instead of depending on `OrbbecProducer`.
+
 ## v0.1.6 - 2026-06-11
 
 ### Added
