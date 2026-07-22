@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ORBBEC_BUILD_FOXGLOVE_SINK "Build Foxglove publisher library target" ON)
 option(ORBBEC_BUILD_BRIDGE_APP "Build bridge executable app target" ON)
 option(ORBBEC_BUILD_PRODUCER_APP "Build producer-only executable app target (no Foxglove dependency)" OFF)
+option(ORBBEC_BUILD_MCAP_RECORDER "Build Orbbec to ROS 2 MCAP recorder app" OFF)
 
 if(ORBBEC_BUILD_BRIDGE_APP AND NOT ORBBEC_BUILD_FOXGLOVE_SINK)
   message(FATAL_ERROR "ORBBEC_BUILD_BRIDGE_APP requires ORBBEC_BUILD_FOXGLOVE_SINK=ON")
@@ -18,13 +19,20 @@ set(FOXGLOVE_SDK_ROOT "" CACHE PATH "Path to Foxglove C++ SDK root (must contain
 set(CAMERA_BRIDGE_CORE_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../camera_bridge_core"
     CACHE PATH "Path to local camera_bridge_core project")
+set(CAMERA_BRIDGE_MCAP_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../camera_bridge_mcap"
+    CACHE PATH "Path to local camera_bridge_mcap project")
 
 if(NOT EXISTS "${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp")
   message(FATAL_ERROR
     "ORBBEC_SDK_ROOT is invalid. Expected: ${ORBBEC_SDK_ROOT}/include/libobsensor/ObSensor.hpp")
 endif()
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs highgui)
+set(ORBBEC_OPENCV_COMPONENTS core imgproc imgcodecs)
+if(ORBBEC_BUILD_PRODUCER_APP)
+  list(APPEND ORBBEC_OPENCV_COMPONENTS highgui)
+endif()
+find_package(OpenCV REQUIRED COMPONENTS ${ORBBEC_OPENCV_COMPONENTS})
 find_package(Threads REQUIRED)
 find_package(GTSAM QUIET)
 
@@ -128,6 +136,30 @@ target_link_libraries(orbbec_core
 )
 
 orbbec_apply_common_cxx_options(orbbec_core)
+
+if(ORBBEC_BUILD_MCAP_RECORDER)
+  if(NOT TARGET camera_bridge::mcap)
+    if(NOT EXISTS "${CAMERA_BRIDGE_MCAP_DIR}/CMakeLists.txt")
+      message(FATAL_ERROR
+        "CAMERA_BRIDGE_MCAP_DIR is invalid. Expected ${CAMERA_BRIDGE_MCAP_DIR}/CMakeLists.txt")
+    endif()
+    set(CAMERA_BRIDGE_MCAP_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    add_subdirectory(
+      "${CAMERA_BRIDGE_MCAP_DIR}"
+      "${CMAKE_BINARY_DIR}/camera_bridge_mcap")
+  endif()
+
+  add_executable(orbbec_mcap_recorder
+    src/mcap_recorder_main.cpp
+  )
+  target_include_directories(orbbec_mcap_recorder PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(orbbec_mcap_recorder PRIVATE
+    orbbec::core
+    camera_bridge::mcap)
+  orbbec_apply_common_cxx_options(orbbec_mcap_recorder)
+  orbbec_add_windows_runtime_assets(orbbec_mcap_recorder)
+endif()
 
 option(ORBBEC_BUILD_TESTING "Build orbbec_foxglove tests" OFF)
 if(ORBBEC_BUILD_TESTING)

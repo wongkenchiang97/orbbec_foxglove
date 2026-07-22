@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added the optional `orbbec_mcap_recorder` executable, connecting abstract
+  Orbbec camera events to ROS 2-compatible MCAP recording and the optional
+  Foxglove live sink without introducing ROS runtime dependencies.
+
 All notable changes to this project are documented in this file.
 
 ## v0.1.7 - 2026-07-02

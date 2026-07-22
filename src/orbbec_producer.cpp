@@ -1,4 +1,5 @@
 #include "orbbec_producer.hpp"
+#include "camera_bridge_core/stream_names.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -907,6 +908,8 @@ void OrbbecProducer::start() {
     CameraCalibrationEvent calibration_event;
     calibration_event.source_id = options_.source_id;
     calibration_event.timestamp_us = nowEpochUs();
+    calibration_event.color_frame_id = options_.color_frame_id;
+    calibration_event.depth_frame_id = options_.depth_frame_id;
     if (selected_color_profile) {
       try {
         calibration_event.color_intrinsic =
@@ -1089,7 +1092,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
           bgr_opt.value(),
           makeFrameTiming(
               color_frame, receive_steady_us, receive_epoch_us,
-              color_clock_mapper_)};
+              color_clock_mapper_),
+          options_.color_frame_id};
       const DepthFrameEvent depth_event{
           options_.source_id,
           bestTimestampUs(depth_frame),
@@ -1097,7 +1101,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
           depth_opt.value(),
           makeFrameTiming(
               depth_frame, receive_steady_us, receive_epoch_us,
-              depth_clock_mapper_)};
+              depth_clock_mapper_),
+          options_.depth_frame_id};
 
       IFrameConsumer* consumer = nullptr;
       ColorCallback color_callback;
@@ -1136,7 +1141,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
               bgr_opt.value(),
               makeFrameTiming(
                   color_frame, receive_steady_us, receive_epoch_us,
-                  color_clock_mapper_)};
+                  color_clock_mapper_),
+              options_.color_frame_id};
           IFrameConsumer* consumer = nullptr;
           ColorCallback callback;
           {
@@ -1168,7 +1174,8 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
               depth_opt.value(),
               makeFrameTiming(
                   depth_frame, receive_steady_us, receive_epoch_us,
-                  depth_clock_mapper_)};
+                  depth_clock_mapper_),
+              options_.depth_frame_id};
           IFrameConsumer* consumer = nullptr;
           DepthCallback callback;
           {
@@ -1202,6 +1209,7 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
 
     ImuSampleEvent event;
     event.source_id = options_.source_id;
+    event.frame_id = cameraImuFrame(options_.source_id);
     uint64_t device_timestamp_us = 0;
 
     auto accel_raw = frame_set->getFrame(OB_FRAME_ACCEL);

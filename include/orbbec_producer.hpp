@@ -17,7 +17,7 @@
 
 namespace bridge {
 
-class OrbbecProducer final {
+class OrbbecProducer final : public IFrameProducer {
  public:
   struct Options {
     uint32_t source_id = 0;
@@ -55,12 +55,12 @@ class OrbbecProducer final {
   void setImuCallback(ImuCallback cb);
   void setExtrinsicsCallback(ExtrinsicsCallback cb);
   void setCameraCalibrationCallback(CameraCalibrationCallback cb);
-  void setFrameConsumer(IFrameConsumer* consumer);
+  void setFrameConsumer(IFrameConsumer* consumer) override;
 
-  void start();
-  void stop();
+  void start() override;
+  void stop() override;
 
-  [[nodiscard]] Stats consumeStats();
+  [[nodiscard]] Stats consumeStats() override;
 
  private:
   void onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_set);

@@ -149,6 +149,42 @@ Build options:
 - `-DORBBEC_BUILD_FOXGLOVE_SINK=ON|OFF` (default: `ON`)
 - `-DORBBEC_BUILD_BRIDGE_APP=ON|OFF` (default: `ON`)
 - `-DORBBEC_BUILD_PRODUCER_APP=ON|OFF` (default: `OFF`)
+- `-DORBBEC_BUILD_MCAP_RECORDER=ON|OFF` (default: `OFF`)
+
+## ROS 2 MCAP recording
+
+`orbbec_mcap_recorder` is a thin adapter from `OrbbecProducer` to the
+vendor-independent `camera_bridge_mcap::Ros2McapRecorder`. It does not link
+ROS, DDS, `rclcpp`, or `rosbag2`; the resulting file contains ROS 2 CDR topics
+that can be copied to Linux and consumed with ROS 2 Humble tooling.
+
+Build on Windows without live Foxglove publication:
+
+```powershell
+$env:BUILD_DIR="build-orbbec-mcap-msvc"
+$env:ORBBEC_BUILD_FOXGLOVE_SINK="OFF"
+$env:ORBBEC_BUILD_BRIDGE_APP="OFF"
+$env:ORBBEC_BUILD_MCAP_RECORDER="ON"
+$env:CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE="OFF"
+.\build_ninja_msvc.cmd
+```
+
+Set `CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE=ON` during the build to make the
+recorder's optional live WebSocket sink available. Record until Ctrl+C:
+
+```powershell
+.\build-orbbec-mcap-msvc\orbbec_mcap_recorder.exe `
+  --output recordings\mapping_run.mcap `
+  --source-id 0 `
+  --color-width 1280 --color-height 720 --color-fps 30 `
+  --depth-enabled 1 --imu-accel-hz 200 --imu-gyro-hz 200
+```
+
+For a Foxglove-enabled build, add `--foxglove 1`; the default endpoint is
+`ws://127.0.0.1:8765`. The application finalizes the MCAP index and summary
+after Ctrl+C or the optional `--duration <seconds>` limit.
+An existing output is protected unless `--overwrite 1` is passed. If camera
+startup fails, the newly created empty output is removed.
 
 For a VO-focused external project that only needs producer/dispatcher interfaces:
 

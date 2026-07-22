@@ -12,10 +12,13 @@ set "NINJA_EXE=C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/
 set "ORBBEC_SDK_ROOT=C:/Program Files/OrbbecSDK 2.7.6"
 set "FOXGLOVE_SDK_ROOT=C:/Users/USER/Documents/amr_ws/foxglove-sdk"
 set "VCPKG_TOOLCHAIN=C:/Users/USER/Documents/amr_ws/vcpkg/scripts/buildsystems/vcpkg.cmake"
+if not defined BUILD_DIR set "BUILD_DIR=build-ninja-msvc"
 
 if not defined ORBBEC_BUILD_FOXGLOVE_SINK set "ORBBEC_BUILD_FOXGLOVE_SINK=ON"
 if not defined ORBBEC_BUILD_BRIDGE_APP set "ORBBEC_BUILD_BRIDGE_APP=ON"
 if not defined ORBBEC_BUILD_PRODUCER_APP set "ORBBEC_BUILD_PRODUCER_APP=OFF"
+if not defined ORBBEC_BUILD_MCAP_RECORDER set "ORBBEC_BUILD_MCAP_RECORDER=OFF"
+if not defined CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE set "CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE=OFF"
 
 if /I "%ORBBEC_BUILD_BRIDGE_APP%"=="ON" if /I "%ORBBEC_BUILD_FOXGLOVE_SINK%"=="OFF" (
   echo ORBBEC_BUILD_BRIDGE_APP=ON requires ORBBEC_BUILD_FOXGLOVE_SINK=ON
@@ -26,11 +29,14 @@ set "FOXGLOVE_ARGS="
 if /I "%ORBBEC_BUILD_FOXGLOVE_SINK%"=="ON" (
   set "FOXGLOVE_ARGS=-DFOXGLOVE_SDK_ROOT=%FOXGLOVE_SDK_ROOT%"
 )
+if /I "%CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE%"=="ON" (
+  set "FOXGLOVE_ARGS=-DFOXGLOVE_SDK_ROOT=%FOXGLOVE_SDK_ROOT%"
+)
 
 if exist "C:\Users\USER\Documents\amr_ws\vcpkg\scripts\buildsystems\vcpkg.cmake" (
   "%CMAKE_EXE%" ^
     -S . ^
-    -B build-ninja-msvc ^
+    -B "%BUILD_DIR%" ^
     -G Ninja ^
     -DCMAKE_BUILD_TYPE=Release ^
     -DCMAKE_MAKE_PROGRAM="%NINJA_EXE%" ^
@@ -39,12 +45,16 @@ if exist "C:\Users\USER\Documents\amr_ws\vcpkg\scripts\buildsystems\vcpkg.cmake"
     -DORBBEC_BUILD_FOXGLOVE_SINK=%ORBBEC_BUILD_FOXGLOVE_SINK% ^
     -DORBBEC_BUILD_BRIDGE_APP=%ORBBEC_BUILD_BRIDGE_APP% ^
     -DORBBEC_BUILD_PRODUCER_APP=%ORBBEC_BUILD_PRODUCER_APP% ^
+    -DORBBEC_BUILD_MCAP_RECORDER=%ORBBEC_BUILD_MCAP_RECORDER% ^
+    -DCAMERA_BRIDGE_MCAP_WITH_FOXGLOVE=%CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE% ^
     -DCMAKE_TOOLCHAIN_FILE="%VCPKG_TOOLCHAIN%" ^
+    -DVCPKG_MANIFEST_MODE=ON ^
+    -DVCPKG_MANIFEST_DIR="%CD%" ^
     -DVCPKG_TARGET_TRIPLET=x64-windows
 ) else (
   "%CMAKE_EXE%" ^
     -S . ^
-    -B build-ninja-msvc ^
+    -B "%BUILD_DIR%" ^
     -G Ninja ^
     -DCMAKE_BUILD_TYPE=Release ^
     -DCMAKE_MAKE_PROGRAM="%NINJA_EXE%" ^
@@ -52,9 +62,11 @@ if exist "C:\Users\USER\Documents\amr_ws\vcpkg\scripts\buildsystems\vcpkg.cmake"
     %FOXGLOVE_ARGS% ^
     -DORBBEC_BUILD_FOXGLOVE_SINK=%ORBBEC_BUILD_FOXGLOVE_SINK% ^
     -DORBBEC_BUILD_BRIDGE_APP=%ORBBEC_BUILD_BRIDGE_APP% ^
-    -DORBBEC_BUILD_PRODUCER_APP=%ORBBEC_BUILD_PRODUCER_APP%
+    -DORBBEC_BUILD_PRODUCER_APP=%ORBBEC_BUILD_PRODUCER_APP% ^
+    -DORBBEC_BUILD_MCAP_RECORDER=%ORBBEC_BUILD_MCAP_RECORDER% ^
+    -DCAMERA_BRIDGE_MCAP_WITH_FOXGLOVE=%CAMERA_BRIDGE_MCAP_WITH_FOXGLOVE%
 )
 if errorlevel 1 exit /b 1
 
-"%CMAKE_EXE%" --build build-ninja-msvc
+"%CMAKE_EXE%" --build "%BUILD_DIR%"
 exit /b %errorlevel%
