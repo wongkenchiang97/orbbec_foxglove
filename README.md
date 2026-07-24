@@ -176,15 +176,35 @@ recorder's optional live WebSocket sink available. Record until Ctrl+C:
 .\build-orbbec-mcap-msvc\orbbec_mcap_recorder.exe `
   --output recordings\mapping_run.mcap `
   --source-id 0 `
-  --color-width 1280 --color-height 720 --color-fps 30 `
+  --color-width 848 --color-height 480 --color-fps 30 `
+  --sync-color-depth-only 1 `
+  --depth-width 848 --depth-height 480 --depth-fps 30 `
   --depth-enabled 1 --imu-accel-hz 200 --imu-gyro-hz 200
 ```
+
+The recorder defaults match `config/camera_config.ini`: synchronized 848x480
+color and depth at 30 FPS. Orbbec color profile format 5 is MJPEG, so the
+recorder build enables OpenCV JPEG decoding. Runtime counters report
+`color_rx`, decoded `color`, `depth_rx`, decoded `depth`, and `imu`; a healthy
+capture should keep received and decoded RGB-D rates near 30 Hz. Stop and
+diagnose any capture with a sustained zero received or decoded stream.
 
 For a Foxglove-enabled build, add `--foxglove 1`; the default endpoint is
 `ws://127.0.0.1:8765`. The application finalizes the MCAP index and summary
 after Ctrl+C or the optional `--duration <seconds>` limit.
 An existing output is protected unless `--overwrite 1` is passed. If camera
 startup fails, the newly created empty output is removed.
+
+### 2026-07-24 recorder checkpoint
+
+Linux recording and playback were validated with
+`recordings/office_small_loop.mcap`. ROS 2 reports a 58.187815-second,
+1.6-GiB MCAP containing 1,733 synchronized color frames, 1,733 synchronized
+depth frames, 11,657 IMU messages, color/depth calibration, static TF, and
+15,123 timing records. Its SHA-256 is
+`06e02db9cc9c670fe7a5c772783e71d4cdb91f2e240c4f26a948e485d13aeec4`.
+The recording was also played successfully. Exact replay terminal counters
+were not retained for this checkpoint.
 
 For a VO-focused external project that only needs producer/dispatcher interfaces:
 

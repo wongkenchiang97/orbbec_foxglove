@@ -20,12 +20,12 @@ struct Options {
   std::filesystem::path output = "orbbec_recording.mcap";
   bool overwrite = false;
   uint32_t source_id = 0;
-  uint32_t color_width = 640;
+  uint32_t color_width = 848;
   uint32_t color_height = 480;
   uint32_t color_fps = 30;
   bool depth_enabled = true;
-  bool sync_color_depth_only = false;
-  uint32_t depth_width = 640;
+  bool sync_color_depth_only = true;
+  uint32_t depth_width = 848;
   uint32_t depth_height = 480;
   uint32_t depth_fps = 30;
   double imu_accel_hz = 0.0;
@@ -51,12 +51,12 @@ void usage() {
       << "  --output <file.mcap>            Output path (default: orbbec_recording.mcap)\n"
       << "  --overwrite <0|1>               Replace an existing output file (default: 0)\n"
       << "  --source-id <n>                 Camera number (default: 0)\n"
-      << "  --color-width <n>               Color width (default: 640)\n"
+      << "  --color-width <n>               Color width (default: 848)\n"
       << "  --color-height <n>              Color height (default: 480)\n"
       << "  --color-fps <n>                 Color rate (default: 30)\n"
       << "  --depth-enabled <0|1>           Record depth (default: 1)\n"
-      << "  --sync-color-depth-only <0|1>   Require synchronized RGB-D framesets\n"
-      << "  --depth-width <n>               Depth width (default: 640)\n"
+      << "  --sync-color-depth-only <0|1>   Require synchronized RGB-D framesets (default: 1)\n"
+      << "  --depth-width <n>               Depth width (default: 848)\n"
       << "  --depth-height <n>              Depth height (default: 480)\n"
       << "  --depth-fps <n>                 Depth rate (default: 30)\n"
       << "  --imu-accel-hz <n>              Requested accelerometer rate (0=SDK default)\n"
@@ -202,7 +202,9 @@ int main(int argc, char** argv) {
           std::chrono::duration<double>(now - started).count() >= options.duration_sec) break;
       if (now - last_report >= std::chrono::seconds(1)) {
         const auto stats = producer.consumeStats();
-        std::cout << "frames: color=" << stats.color_frames_decoded
+        std::cout << "frames: color_rx=" << stats.color_frames_received
+                  << " color=" << stats.color_frames_decoded
+                  << " depth_rx=" << stats.depth_frames_received
                   << " depth=" << stats.depth_frames_decoded
                   << " imu=" << stats.imu_framesets_received << "\n";
         last_report = now;

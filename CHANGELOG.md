@@ -2,9 +2,37 @@
 
 ## Unreleased
 
+### Added
+
 - Added the optional `orbbec_mcap_recorder` executable, connecting abstract
   Orbbec camera events to ROS 2-compatible MCAP recording and the optional
   Foxglove live sink without introducing ROS runtime dependencies.
+- Added recorder diagnostics that separate received and decoded color/depth
+  frame rates so SDK delivery failures can be distinguished from decode
+  failures.
+
+### Changed
+
+- Changed recorder defaults to synchronized 848x480 color and depth at 30 FPS,
+  matching `config/camera_config.ini`.
+- Enabled the OpenCV JPEG codec in the recorder build so Orbbec MJPEG color
+  profile format 5 decodes to BGR instead of being silently dropped.
+
+### Validation
+
+- Linux `orbbec_mcap_recorder` built successfully with JPEG and PNG codec
+  support.
+- Recorded and replayed `office_small_loop.mcap`: 58.187815 seconds, 1.6 GiB,
+  1,733 color frames, 1,733 depth frames, 11,657 IMU messages, both camera-info
+  messages, one static TF message, and 15,123 timing records. SHA-256:
+  `06e02db9cc9c670fe7a5c772783e71d4cdb91f2e240c4f26a948e485d13aeec4`.
+
+### Known Follow-up
+
+- Add an automated startup health gate that rejects sustained zero received or
+  decoded color/depth rates instead of relying only on operator diagnostics.
+- Repeat the current checkpoint build on MSVC; the shared contract changes are
+  C++17-compatible but were validated on Linux in this checkpoint.
 
 All notable changes to this project are documented in this file.
 
