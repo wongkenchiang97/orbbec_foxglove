@@ -21,6 +21,7 @@ class OrbbecProducer final : public IFrameProducer {
  public:
   struct Options {
     uint32_t source_id = 0;
+    std::string serial_number;
     uint32_t color_width = 640;
     uint32_t color_height = 480;
     uint32_t color_fps = 30;
@@ -29,6 +30,14 @@ class OrbbecProducer final : public IFrameProducer {
     uint32_t depth_height = 480;
     uint32_t depth_fps = 30;
     bool sync_color_depth_only = false;
+    bool infrared1_enabled = false;
+    bool infrared2_enabled = false;
+    uint32_t infrared_width = 848;
+    uint32_t infrared_height = 480;
+    uint32_t infrared_fps = 30;
+    // Recorder-only mode: preserve accel/gyro timestamps independently.
+    bool split_raw_imu_samples = false;
+    bool imu_enabled = true;
     double imu_accel_hz = 0.0;
     double imu_gyro_hz = 0.0;
     std::string color_frame_id = "camera_color_optical_frame";
@@ -70,11 +79,14 @@ class OrbbecProducer final : public IFrameProducer {
 
   std::unique_ptr<ob::Pipeline> video_pipeline_;
   std::unique_ptr<ob::Pipeline> imu_pipeline_;
+  std::shared_ptr<ob::Device> selected_device_;
 
   bool video_started_ = false;
   bool imu_started_ = false;
   bool color_enabled_ = false;
   bool depth_enabled_ = false;
+  bool infrared1_enabled_ = false;
+  bool infrared2_enabled_ = false;
   bool imu_enabled_ = false;
 
   std::mutex callback_mutex_;
@@ -95,6 +107,8 @@ class OrbbecProducer final : public IFrameProducer {
   std::atomic<uint64_t> imu_accel_samples_{0};
   std::atomic<uint64_t> imu_gyro_samples_{0};
   uint64_t last_imu_device_timestamp_us_ = 0;
+  uint64_t last_accel_device_timestamp_us_ = 0;
+  uint64_t last_gyro_device_timestamp_us_ = 0;
   uint64_t imu_dt_reset_threshold_us_ = 500000;
   bool has_accel_intrinsic_ = false;
   ImuAccelIntrinsic accel_intrinsic_{};
@@ -102,6 +116,10 @@ class OrbbecProducer final : public IFrameProducer {
   ImuGyroIntrinsic gyro_intrinsic_{};
   DeviceClockMapper color_clock_mapper_;
   DeviceClockMapper depth_clock_mapper_;
+  DeviceClockMapper infrared1_clock_mapper_;
+  DeviceClockMapper infrared2_clock_mapper_;
+  DeviceClockMapper accel_clock_mapper_;
+  DeviceClockMapper gyro_clock_mapper_;
 };
 
 }  // namespace bridge

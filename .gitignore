@@ -25,6 +25,10 @@ compile_commands.json
 # Runtime and logs
 *.log
 Log/
+/recordings/
+# Keep human-written validation notes versionable, not generated evidence.
+/validation/*
+!/validation/*.md
 
 # Python artifacts
 __pycache__/

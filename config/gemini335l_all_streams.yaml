@@ -1,0 +1,23 @@
+# Replace serial and output with this camera's values before capture.
+# ROS-free parser, ROS 2-compatible CDR MCAP output.
+recorder:
+  output: recordings/gemini335l_all_streams.mcap
+  duration_sec: 30
+  zstd: true
+  live_publish_enabled: false
+
+camera0:
+  serial_no: REPLACE_WITH_GEMINI335L_SERIAL
+  enable_color: true
+  rgb_camera.color_profile: 848x480x30
+  enable_depth: true
+  depth_module.depth_profile: 848x480x30
+  enable_infra1: true
+  enable_infra2: true
+  depth_module.infra_profile: 848x480x30
+  enable_accel: true
+  enable_gyro: true
+  accel_fps: 0
+  gyro_fps: 0
+  recorder.sync_color_depth_only: false
+  recorder.split_raw_imu: true

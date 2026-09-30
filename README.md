@@ -195,6 +195,34 @@ after Ctrl+C or the optional `--duration <seconds>` limit.
 An existing output is protected unless `--overwrite 1` is passed. If camera
 startup fails, the newly created empty output is removed.
 
+For Gemini 335L dual-IR and exact raw IMU timing, use
+[`config/gemini335l_all_streams.yaml`](config/gemini335l_all_streams.yaml) as a
+starting point. Replace its serial number and choose an unused output path,
+then inspect it without opening the camera:
+
+```powershell
+.\build-ninja-msvc\orbbec_mcap_recorder.exe --config config\gemini335l_all_streams.yaml --list-params
+.\build-ninja-msvc\orbbec_mcap_recorder.exe --config config\gemini335l_all_streams.yaml --check-config
+```
+
+The YAML parser intentionally supports one `cameraN:` section per recorder
+process and the flat keys printed by `--list-params`; unsupported keys fail
+closed. The listing marks YAML overrides in yellow on an interactive console
+and as `# override` in redirected output. These are application settings, not
+device-effective readback. CLI arguments may override the YAML values, but
+`--source-id` must match `cameraN`. IR1/IR2 require
+`recorder.sync_color_depth_only: false`; requested Y8 IR profiles must exist
+on the connected device. The recorder writes ROS 2 CDR `sensor_msgs` image,
+camera-info, and IMU topics, plus separate exact device-time timing records
+for raw gyro and accelerometer. No ROS runtime is required. A successful
+offline config check does not validate hardware profiles or clock domains;
+verify those in a short, separately planned hardware capture before relying
+on the file for VIO.
+The recorder also fails with a nonzero exit code if a required color, depth,
+or IMU stream stalls beyond `recorder.stream_stall_timeout_sec` (default 5 s).
+It finalizes and preserves the partial MCAP for diagnosis; a finalized file
+is not by itself evidence of a successful capture.
+
 ### 2026-07-24 recorder checkpoint
 
 Linux recording and playback were validated with

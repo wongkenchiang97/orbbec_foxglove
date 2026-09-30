@@ -430,6 +430,37 @@ std::optional<cv::Mat> decodeDepthToMono16(const std::shared_ptr<ob::VideoFrame>
   }
 }
 
+std::optional<cv::Mat> decodeInfraredToMono8(const std::shared_ptr<ob::VideoFrame>& frame) {
+  if (!frame || frame->getFormat() != OB_FORMAT_Y8) return std::nullopt;
+  const auto width = static_cast<int>(frame->getWidth());
+  const auto height = static_cast<int>(frame->getHeight());
+  if (width <= 0 || height <= 0 || !frame->getData() ||
+      frame->getDataSize() < static_cast<size_t>(width) * height) return std::nullopt;
+  return cv::Mat(height, width, CV_8UC1, frame->getData()).clone();
+}
+
+std::shared_ptr<ob::VideoFrame> extractInfraredVideoFrame(
+    const std::shared_ptr<ob::FrameSet>& frames, OBFrameType type) {
+  if (!frames) return nullptr;
+  auto frame = frames->getFrame(type);
+  return frame && frame->is<ob::VideoFrame>() ? frame->as<ob::VideoFrame>() : nullptr;
+}
+
+std::shared_ptr<ob::VideoStreamProfile> selectInfraredProfile(
+    const std::shared_ptr<ob::StreamProfileList>& profiles,
+    uint32_t width, uint32_t height, uint32_t fps) {
+  const uint32_t count = profiles ? profiles->getCount() : 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    auto candidate = profiles->getProfile(i);
+    if (!candidate || !candidate->is<ob::VideoStreamProfile>()) continue;
+    auto video = candidate->as<ob::VideoStreamProfile>();
+    if (video->getWidth() == width && video->getHeight() == height &&
+        video->getFps() == fps && video->getFormat() == OB_FORMAT_Y8)
+      return video;
+  }
+  throw std::runtime_error("Requested Y8 infrared profile is unavailable");
+}
+
 std::shared_ptr<ob::VideoFrame> extractColorVideoFrame(const std::shared_ptr<ob::FrameSet>& frame_set) {
   if (!frame_set) {
     return nullptr;
@@ -651,8 +682,26 @@ void OrbbecProducer::start() {
     }
     ob::Context::setLoggerSeverity(OB_LOG_SEVERITY_WARN);
 
-    video_pipeline_ = std::make_unique<ob::Pipeline>();
+    if (!options_.serial_number.empty()) {
+      ob::Context context;
+      selected_device_ = context.queryDeviceList()->getDeviceBySN(
+          options_.serial_number.c_str());
+      if (!selected_device_)
+        throw std::runtime_error("Requested Orbbec serial not found: " + options_.serial_number);
+      video_pipeline_ = std::make_unique<ob::Pipeline>(selected_device_);
+    } else {
+      video_pipeline_ = std::make_unique<ob::Pipeline>();
+      selected_device_ = video_pipeline_->getDevice();
+    }
+    if (selected_device_)
+      std::cout << "Selected Orbbec serial: "
+                << selected_device_->getDeviceInfo()->getSerialNumber() << "\n";
     auto video_config = std::make_shared<ob::Config>();
+    if ((options_.infrared1_enabled || options_.infrared2_enabled) &&
+        options_.sync_color_depth_only) {
+      throw std::runtime_error(
+          "dual-IR recording requires sync_color_depth_only=false; retain exact per-stream timestamps");
+    }
     if (options_.sync_color_depth_only) {
       video_config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ALL_TYPE_FRAME_REQUIRE);
     } else {
@@ -661,8 +710,12 @@ void OrbbecProducer::start() {
 
     color_enabled_ = false;
     depth_enabled_ = false;
+    infrared1_enabled_ = false;
+    infrared2_enabled_ = false;
     std::shared_ptr<ob::VideoStreamProfile> selected_color_profile;
     std::shared_ptr<ob::VideoStreamProfile> selected_depth_profile;
+    std::shared_ptr<ob::VideoStreamProfile> selected_infrared1_profile;
+    std::shared_ptr<ob::VideoStreamProfile> selected_infrared2_profile;
 
     try {
       auto profile_list = video_pipeline_->getStreamProfileList(OB_SENSOR_COLOR);
@@ -740,8 +793,24 @@ void OrbbecProducer::start() {
       std::cout << "Depth stream disabled by config.\n";
     }
 
-    if (!color_enabled_ && !depth_enabled_) {
-      throw std::runtime_error("No color/depth video stream available to start");
+    if (options_.infrared1_enabled) {
+      selected_infrared1_profile = selectInfraredProfile(
+          video_pipeline_->getStreamProfileList(OB_SENSOR_IR_LEFT),
+          options_.infrared_width, options_.infrared_height, options_.infrared_fps);
+      video_config->enableStream(selected_infrared1_profile);
+      infrared1_enabled_ = true;
+    }
+    if (options_.infrared2_enabled) {
+      selected_infrared2_profile = selectInfraredProfile(
+          video_pipeline_->getStreamProfileList(OB_SENSOR_IR_RIGHT),
+          options_.infrared_width, options_.infrared_height, options_.infrared_fps);
+      video_config->enableStream(selected_infrared2_profile);
+      infrared2_enabled_ = true;
+    }
+
+    if (!color_enabled_ && !depth_enabled_ &&
+        !infrared1_enabled_ && !infrared2_enabled_) {
+      throw std::runtime_error("No video stream available to start");
     }
 
     if (options_.sync_color_depth_only && (!color_enabled_ || !depth_enabled_)) {
@@ -751,6 +820,8 @@ void OrbbecProducer::start() {
 
     color_clock_mapper_.reset();
     depth_clock_mapper_.reset();
+    infrared1_clock_mapper_.reset();
+    infrared2_clock_mapper_.reset();
     video_pipeline_->start(video_config, [this](std::shared_ptr<ob::FrameSet> frame_set) {
       onVideoFrameset(frame_set);
     });
@@ -762,11 +833,18 @@ void OrbbecProducer::start() {
 
     video_started_ = true;
 
-    imu_pipeline_ = std::make_unique<ob::Pipeline>();
+    if (options_.imu_enabled)
+      imu_pipeline_ = std::make_unique<ob::Pipeline>(selected_device_);
+    else
+      imu_pipeline_.reset();
     auto imu_config = std::make_shared<ob::Config>();
     imu_config->setFrameAggregateOutputMode(OB_FRAME_AGGREGATE_OUTPUT_ANY_SITUATION);
     imu_enabled_ = false;
     last_imu_device_timestamp_us_ = 0;
+    last_accel_device_timestamp_us_ = 0;
+    last_gyro_device_timestamp_us_ = 0;
+    accel_clock_mapper_.reset();
+    gyro_clock_mapper_.reset();
     imu_dt_reset_threshold_us_ = 500000;
     has_accel_intrinsic_ = false;
     accel_intrinsic_ = bridge::ImuAccelIntrinsic{};
@@ -778,7 +856,7 @@ void OrbbecProducer::start() {
     double accel_rate_hz = 0.0;
     double gyro_rate_hz = 0.0;
 
-    if (options_.imu_accel_hz > 0.0) {
+    if (options_.imu_enabled && options_.imu_accel_hz > 0.0) {
       auto choice = chooseImuSampleRate(options_.imu_accel_hz);
       if (choice.has_value()) {
         accel_rate = static_cast<OBAccelSampleRate>(choice->rate);
@@ -790,7 +868,7 @@ void OrbbecProducer::start() {
       }
     }
 
-    if (options_.imu_gyro_hz > 0.0) {
+    if (options_.imu_enabled && options_.imu_gyro_hz > 0.0) {
       auto choice = chooseImuSampleRate(options_.imu_gyro_hz);
       if (choice.has_value()) {
         gyro_rate = static_cast<OBGyroSampleRate>(choice->rate);
@@ -809,19 +887,26 @@ void OrbbecProducer::start() {
       imu_dt_reset_threshold_us_ = static_cast<uint64_t>(reset_threshold_sec * 1e6);
     }
 
-    try {
-      imu_config->enableAccelStream(OB_ACCEL_FULL_SCALE_RANGE_ANY, accel_rate);
-      imu_enabled_ = true;
-    } catch (const ob::Error&) {
-      std::cerr << "Accel stream unavailable on this profile/device.\n";
+    bool accel_enabled = false;
+    bool gyro_enabled = false;
+    if (options_.imu_enabled) {
+      try {
+        imu_config->enableAccelStream(OB_ACCEL_FULL_SCALE_RANGE_ANY, accel_rate);
+        accel_enabled = true;
+      } catch (const ob::Error&) {
+        std::cerr << "Accel stream unavailable on this profile/device.\n";
+      }
+      try {
+        imu_config->enableGyroStream(OB_GYRO_FULL_SCALE_RANGE_ANY, gyro_rate);
+        gyro_enabled = true;
+      } catch (const ob::Error&) {
+        std::cerr << "Gyro stream unavailable on this profile/device.\n";
+      }
     }
-
-    try {
-      imu_config->enableGyroStream(OB_GYRO_FULL_SCALE_RANGE_ANY, gyro_rate);
-      imu_enabled_ = true;
-    } catch (const ob::Error&) {
-      std::cerr << "Gyro stream unavailable on this profile/device.\n";
-    }
+    if (options_.split_raw_imu_samples && options_.imu_enabled &&
+        (!accel_enabled || !gyro_enabled))
+      throw std::runtime_error("Raw IMU recording requires both accel and gyro streams");
+    imu_enabled_ = accel_enabled || gyro_enabled;
 
     if (imu_enabled_) {
       try {
@@ -910,6 +995,10 @@ void OrbbecProducer::start() {
     calibration_event.timestamp_us = nowEpochUs();
     calibration_event.color_frame_id = options_.color_frame_id;
     calibration_event.depth_frame_id = options_.depth_frame_id;
+    calibration_event.infrared1_frame_id =
+        cameraInfraredOpticalFrame(options_.source_id, 1);
+    calibration_event.infrared2_frame_id =
+        cameraInfraredOpticalFrame(options_.source_id, 2);
     if (selected_color_profile) {
       try {
         calibration_event.color_intrinsic =
@@ -932,7 +1021,30 @@ void OrbbecProducer::start() {
         std::cerr << "Depth camera intrinsic/distortion unavailable: " << e.what() << "\n";
       }
     }
-    if (calibration_event.has_color || calibration_event.has_depth) {
+    if (selected_infrared1_profile) {
+      try {
+        calibration_event.infrared1_intrinsic =
+            toBridgeCameraIntrinsic(selected_infrared1_profile->getIntrinsic());
+        calibration_event.infrared1_distortion =
+            toBridgeCameraDistortion(selected_infrared1_profile->getDistortion());
+        calibration_event.has_infrared1 = true;
+      } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("IR1 calibration unavailable: ") + e.what());
+      }
+    }
+    if (selected_infrared2_profile) {
+      try {
+        calibration_event.infrared2_intrinsic =
+            toBridgeCameraIntrinsic(selected_infrared2_profile->getIntrinsic());
+        calibration_event.infrared2_distortion =
+            toBridgeCameraDistortion(selected_infrared2_profile->getDistortion());
+        calibration_event.has_infrared2 = true;
+      } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("IR2 calibration unavailable: ") + e.what());
+      }
+    }
+    if (calibration_event.has_color || calibration_event.has_depth ||
+        calibration_event.has_infrared1 || calibration_event.has_infrared2) {
       IFrameConsumer* consumer = nullptr;
       CameraCalibrationCallback callback;
       {
@@ -947,6 +1059,30 @@ void OrbbecProducer::start() {
         callback(calibration_event);
       }
       std::cout << "Published camera intrinsics for available image streams.\n";
+    }
+    if (selected_infrared1_profile && selected_infrared2_profile) {
+      try {
+        ExtrinsicsEvent extrinsics_event;
+        extrinsics_event.source_id = options_.source_id;
+        extrinsics_event.timestamp_us = nowEpochUs();
+        ExtrinsicTransformEvent transform;
+        transform.parent_frame_id = calibration_event.infrared1_frame_id;
+        transform.child_frame_id = calibration_event.infrared2_frame_id;
+        transform.extrinsic = toBridgeExtrinsic(
+            selected_infrared2_profile->getExtrinsicTo(selected_infrared1_profile));
+        extrinsics_event.transforms.push_back(transform);
+        IFrameConsumer* consumer = nullptr;
+        ExtrinsicsCallback callback;
+        {
+          std::lock_guard<std::mutex> lock(callback_mutex_);
+          consumer = frame_consumer_;
+          callback = extrinsics_cb_;
+        }
+        if (consumer) consumer->onExtrinsics(extrinsics_event);
+        if (callback) callback(extrinsics_event);
+      } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("IR stereo extrinsics unavailable: ") + e.what());
+      }
     }
 
     if (selected_color_profile && selected_depth_profile &&
@@ -1035,15 +1171,24 @@ void OrbbecProducer::stop() {
   imu_enabled_ = false;
   color_enabled_ = false;
   depth_enabled_ = false;
+  infrared1_enabled_ = false;
+  infrared2_enabled_ = false;
   last_imu_device_timestamp_us_ = 0;
+  last_accel_device_timestamp_us_ = 0;
+  last_gyro_device_timestamp_us_ = 0;
   color_clock_mapper_.reset();
   depth_clock_mapper_.reset();
+  infrared1_clock_mapper_.reset();
+  infrared2_clock_mapper_.reset();
+  accel_clock_mapper_.reset();
+  gyro_clock_mapper_.reset();
   has_accel_intrinsic_ = false;
   accel_intrinsic_ = bridge::ImuAccelIntrinsic{};
   has_gyro_intrinsic_ = false;
   gyro_intrinsic_ = bridge::ImuGyroIntrinsic{};
   imu_pipeline_.reset();
   video_pipeline_.reset();
+  selected_device_.reset();
 }
 
 void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_set) {
@@ -1192,6 +1337,33 @@ void OrbbecProducer::onVideoFrameset(const std::shared_ptr<ob::FrameSet>& frame_
         }
       }
     }
+    const auto emit_infrared = [&](bool enabled, OBFrameType type,
+                                   uint8_t index, DeviceClockMapper& mapper) {
+      if (!enabled) return;
+      auto frame = extractInfraredVideoFrame(frame_set, type);
+      if (!frame) return;
+      auto image = decodeInfraredToMono8(frame);
+      if (!image) return;
+      InfraredFrameEvent event;
+      event.source_id = options_.source_id;
+      event.sensor_index = index;
+      event.timestamp_us = bestTimestampUs(frame);
+      event.device_timestamp_us = deviceTimestampUs(frame);
+      event.mono8 = std::move(*image);
+      event.timing = makeFrameTiming(
+          frame, receive_steady_us, receive_epoch_us, mapper);
+      event.frame_id = cameraInfraredOpticalFrame(options_.source_id, index);
+      IFrameConsumer* consumer = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        consumer = frame_consumer_;
+      }
+      if (consumer) consumer->onInfraredFrame(event);
+    };
+    emit_infrared(infrared1_enabled_, OB_FRAME_IR_LEFT, 1,
+                  infrared1_clock_mapper_);
+    emit_infrared(infrared2_enabled_, OB_FRAME_IR_RIGHT, 2,
+                  infrared2_clock_mapper_);
   } catch (const std::exception& e) {
     std::cerr << "Video callback error: " << e.what() << "\n";
   } catch (...) {
@@ -1206,6 +1378,60 @@ void OrbbecProducer::onImuFrameset(const std::shared_ptr<ob::FrameSet>& frame_se
 
   try {
     imu_framesets_received_.fetch_add(1, std::memory_order_relaxed);
+    if (options_.split_raw_imu_samples) {
+      const auto receive_steady_us = nowSteadyUs();
+      const auto receive_epoch_us = nowEpochUs();
+      const auto emit = [&](OBFrameType type, bool gyro,
+                            uint64_t& last_device_us,
+                            DeviceClockMapper& mapper) {
+        auto raw = frame_set->getFrame(type);
+        if (!raw) return;
+        ImuSampleEvent event;
+        event.source_id = options_.source_id;
+        event.frame_id = cameraImuFrame(options_.source_id);
+        event.timestamp_us = bestTimestampUs(raw);
+        event.device_timestamp_us = deviceTimestampUs(raw);
+        event.timing = makeFrameTiming(
+            raw, receive_steady_us, receive_epoch_us, mapper);
+        if (event.device_timestamp_us == 0 || event.timestamp_us == 0)
+          return;
+        if (last_device_us != 0 && event.device_timestamp_us > last_device_us &&
+            event.device_timestamp_us - last_device_us <= imu_dt_reset_threshold_us_) {
+          event.dt_sec = static_cast<double>(event.device_timestamp_us - last_device_us) * 1e-6;
+          event.dt_valid = true;
+        }
+        last_device_us = event.device_timestamp_us;
+        if (gyro) {
+          auto frame = raw->as<ob::GyroFrame>();
+          if (!frame) return;
+          event.has_gyro = true;
+          event.gyro = toBridgeVector(frame->getValue());
+          event.has_gyro_intrinsic = has_gyro_intrinsic_;
+          if (has_gyro_intrinsic_) event.gyro_intrinsic = gyro_intrinsic_;
+          imu_gyro_samples_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          auto frame = raw->as<ob::AccelFrame>();
+          if (!frame) return;
+          event.has_accel = true;
+          event.accel = toBridgeVector(frame->getValue());
+          event.has_accel_intrinsic = has_accel_intrinsic_;
+          if (has_accel_intrinsic_) event.accel_intrinsic = accel_intrinsic_;
+          imu_accel_samples_.fetch_add(1, std::memory_order_relaxed);
+        }
+        IFrameConsumer* consumer = nullptr;
+        ImuCallback callback;
+        {
+          std::lock_guard<std::mutex> lock(callback_mutex_);
+          consumer = frame_consumer_;
+          callback = imu_cb_;
+        }
+        if (consumer) consumer->onImuSample(event);
+        if (callback) callback(event);
+      };
+      emit(OB_FRAME_ACCEL, false, last_accel_device_timestamp_us_, accel_clock_mapper_);
+      emit(OB_FRAME_GYRO, true, last_gyro_device_timestamp_us_, gyro_clock_mapper_);
+      return;
+    }
 
     ImuSampleEvent event;
     event.source_id = options_.source_id;
