@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ class OrbbecProducer final : public IFrameProducer {
     uint32_t color_height = 480;
     uint32_t color_fps = 30;
     bool depth_enabled = true;
+    std::optional<bool> emitter_enabled;
     uint32_t depth_width = 640;
     uint32_t depth_height = 480;
     uint32_t depth_fps = 30;

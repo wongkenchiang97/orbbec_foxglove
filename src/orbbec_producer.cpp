@@ -826,6 +826,28 @@ void OrbbecProducer::start() {
       onVideoFrameset(frame_set);
     });
 
+    if (options_.emitter_enabled.has_value()) {
+      if (!selected_device_)
+        throw std::runtime_error("Requested emitter override requires a selected device");
+      bool effective = false;
+      if (selected_device_->isPropertySupported(OB_PROP_LASER_BOOL, OB_PERMISSION_READ) &&
+          selected_device_->isPropertySupported(OB_PROP_LASER_BOOL, OB_PERMISSION_WRITE)) {
+        selected_device_->setBoolProperty(OB_PROP_LASER_BOOL, *options_.emitter_enabled);
+        effective = selected_device_->getBoolProperty(OB_PROP_LASER_BOOL);
+      } else if (selected_device_->isPropertySupported(OB_PROP_LASER_CONTROL_INT, OB_PERMISSION_READ) &&
+                 selected_device_->isPropertySupported(OB_PROP_LASER_CONTROL_INT, OB_PERMISSION_WRITE)) {
+        selected_device_->setIntProperty(OB_PROP_LASER_CONTROL_INT,
+                                         *options_.emitter_enabled ? 1 : 0);
+        effective = selected_device_->getIntProperty(OB_PROP_LASER_CONTROL_INT) == 1;
+      } else {
+        throw std::runtime_error("Requested emitter override is not readable and writable on this device");
+      }
+      if (effective != *options_.emitter_enabled)
+        throw std::runtime_error("Emitter readback differs from requested override");
+      std::cout << "Orbbec emitter_enabled requested=" << *options_.emitter_enabled
+                << " effective=" << effective << "\n";
+    }
+
     if (options_.sync_color_depth_only) {
       video_pipeline_->enableFrameSync();
       std::cout << "Enabled SDK frame sync with strict color+depth frameset output.\n";
@@ -1071,6 +1093,31 @@ void OrbbecProducer::start() {
         transform.extrinsic = toBridgeExtrinsic(
             selected_infrared2_profile->getExtrinsicTo(selected_infrared1_profile));
         extrinsics_event.transforms.push_back(transform);
+        if (selected_color_profile && !options_.color_frame_id.empty()) {
+          try {
+            ExtrinsicTransformEvent color_from_ir1;
+            color_from_ir1.parent_frame_id = options_.color_frame_id;
+            color_from_ir1.child_frame_id = calibration_event.infrared1_frame_id;
+            color_from_ir1.extrinsic = toBridgeExtrinsic(
+                selected_infrared1_profile->getExtrinsicTo(selected_color_profile));
+            extrinsics_event.transforms.push_back(color_from_ir1);
+            const auto& t = color_from_ir1.extrinsic;
+            std::cout << "Published color_from_ir1 extrinsic for frame tree: "
+                      << "translation_m=("
+                      << t.trans[0] * t.translation_scale_to_meters << ","
+                      << t.trans[1] * t.translation_scale_to_meters << ","
+                      << t.trans[2] * t.translation_scale_to_meters << ")"
+                      << " rotation_row_major=(";
+            for (std::size_t index = 0; index < 9; ++index) {
+              if (index) std::cout << ",";
+              std::cout << t.rot[index];
+            }
+            std::cout << ")\n";
+          } catch (const std::exception& e) {
+            std::cerr << "IR1-to-color extrinsic unavailable: " << e.what()
+                      << "\n";
+          }
+        }
         IFrameConsumer* consumer = nullptr;
         ExtrinsicsCallback callback;
         {

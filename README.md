@@ -205,6 +205,18 @@ then inspect it without opening the camera:
 .\build-ninja-msvc\orbbec_mcap_recorder.exe --config config\gemini335l_all_streams.yaml --check-config
 ```
 
+When color and IR1 profiles are both active, the producer also publishes the
+SDK's color-from-IR1 extrinsic (`color` parent, `infrared1` child) alongside
+the IR1/IR2 baseline. Its translation is converted from SDK millimetres to
+metres. Earlier recordings do not acquire this transform retroactively; use
+a fresh capture or same-device calibration query before composing IR1-to-IMU.
+
+For a projector-off IR comparison, use
+`config/gemini335l_all_streams_projector_off.yaml`. Its
+`depth_module.emitter_enabled: false` setting maps to the SDK laser switch;
+startup fails if the device cannot set and read back the requested state.
+The original all-streams profile remains unchanged as the comparison control.
+
 The YAML parser intentionally supports one `cameraN:` section per recorder
 process and the flat keys printed by `--list-params`; unsupported keys fail
 closed. The listing marks YAML overrides in yellow on an interactive console

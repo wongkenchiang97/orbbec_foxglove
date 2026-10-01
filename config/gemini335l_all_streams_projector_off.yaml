@@ -1,0 +1,24 @@
+# Gemini 335L projector-off A/B route. Keep the original profile unchanged.
+# Replace serial on the CLI and use a unique --output path.
+recorder:
+  output: recordings/gemini335l_ir_projector_off.mcap
+  duration_sec: 60
+  zstd: true
+  live_publish_enabled: false
+
+camera0:
+  serial_no: REPLACE_WITH_GEMINI335L_SERIAL
+  enable_color: true
+  rgb_camera.color_profile: 848x480x30
+  enable_depth: true
+  depth_module.depth_profile: 848x480x30
+  depth_module.emitter_enabled: false
+  enable_infra1: true
+  enable_infra2: true
+  depth_module.infra_profile: 848x480x30
+  enable_accel: true
+  enable_gyro: true
+  accel_fps: 0
+  gyro_fps: 0
+  recorder.sync_color_depth_only: false
+  recorder.split_raw_imu: true

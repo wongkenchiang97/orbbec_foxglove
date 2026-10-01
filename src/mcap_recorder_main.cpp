@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -36,6 +37,7 @@ struct Options {
   uint32_t color_height = 480;
   uint32_t color_fps = 30;
   bool depth_enabled = true;
+  std::optional<bool> emitter_enabled;
   bool sync_color_depth_only = true;
   uint32_t depth_width = 848;
   uint32_t depth_height = 480;
@@ -61,6 +63,7 @@ struct Options {
   bool list_params = false;
   bool list_devices = false;
   bool check_config = false;
+  bool query_extrinsics = false;
 };
 
 std::atomic<bool> running{true};
@@ -105,6 +108,7 @@ void usage() {
       << "  --list-params                   Print defaults/overrides without opening camera\n"
       << "  --list-devices                  List connected Orbbec names and serial numbers\n"
       << "  --check-config                  Validate config/output path without opening camera\n"
+      << "  --query-extrinsics              Query selected SDK profiles without recording\n"
       << "  --help                          Show this help\n";
 }
 
@@ -197,6 +201,7 @@ void applyYamlOption(Options& out, const std::string& section,
     else if (key == "rgb_camera.color_profile")
       profile(value, out.color_width, out.color_height, out.color_fps);
     else if (key == "enable_depth") out.depth_enabled = boolean(value, key);
+    else if (key == "depth_module.emitter_enabled") out.emitter_enabled = boolean(value, key);
     else if (key == "depth_module.depth_profile")
       profile(value, out.depth_width, out.depth_height, out.depth_fps);
     else if (key == "enable_infra1") out.infrared1_enabled = boolean(value, key);
@@ -282,6 +287,7 @@ Options parse(int argc, char** argv) {
     if (key == "--list-params") { out.list_params = true; continue; }
     if (key == "--list-devices") { out.list_devices = true; continue; }
     if (key == "--check-config") { out.check_config = true; continue; }
+    if (key == "--query-extrinsics") { out.query_extrinsics = true; continue; }
     if (i + 1 >= argc) throw std::runtime_error("Missing value for " + key);
     const std::string value = argv[++i];
     if (key == "--config") continue;
@@ -372,6 +378,7 @@ void listParams(const Options& options) {
   print("enable_color", "true", section);
   print("rgb_camera.color_profile", fmt(options.color_width, options.color_height, options.color_fps), section);
   print("enable_depth", tf(options.depth_enabled), section);
+  print("depth_module.emitter_enabled", options.emitter_enabled.has_value() ? tf(*options.emitter_enabled) : "<device default>", section);
   print("depth_module.depth_profile", fmt(options.depth_width, options.depth_height, options.depth_fps), section);
   print("enable_infra1", tf(options.infrared1_enabled), section);
   print("enable_infra2", tf(options.infrared2_enabled), section);
@@ -404,6 +411,30 @@ int main(int argc, char** argv) {
         std::cout << "  " << devices->getName(index) << " serial="
                   << devices->getSerialNumber(index) << "\n";
       return devices->getCount() ? 0 : 2;
+    }
+    if (options.query_extrinsics) {
+      if (!options.infrared1_enabled || !options.infrared2_enabled)
+        throw std::runtime_error("--query-extrinsics requires both IR streams enabled");
+      bridge::OrbbecProducer::Options producer_options;
+      producer_options.source_id = options.source_id;
+      producer_options.serial_number = options.serial_number;
+      producer_options.color_width = options.color_width;
+      producer_options.color_height = options.color_height;
+      producer_options.color_fps = options.color_fps;
+      producer_options.depth_enabled = false;
+      producer_options.emitter_enabled = options.emitter_enabled;
+      producer_options.sync_color_depth_only = false;
+      producer_options.infrared1_enabled = true;
+      producer_options.infrared2_enabled = true;
+      producer_options.infrared_width = options.infrared_width;
+      producer_options.infrared_height = options.infrared_height;
+      producer_options.infrared_fps = options.infrared_fps;
+      producer_options.imu_enabled = false;
+      producer_options.color_frame_id = bridge::cameraColorOpticalFrame(options.source_id);
+      bridge::OrbbecProducer producer(std::move(producer_options));
+      producer.start();
+      producer.stop();
+      return 0;
     }
     if (std::filesystem::exists(options.output) && !options.overwrite) {
       std::cerr << "Output already exists; pass --overwrite 1 to replace it: "
@@ -444,6 +475,7 @@ int main(int argc, char** argv) {
     producer_options.color_height = options.color_height;
     producer_options.color_fps = options.color_fps;
     producer_options.depth_enabled = options.depth_enabled;
+    producer_options.emitter_enabled = options.emitter_enabled;
     producer_options.sync_color_depth_only = options.sync_color_depth_only;
     producer_options.depth_width = options.depth_width;
     producer_options.depth_height = options.depth_height;
